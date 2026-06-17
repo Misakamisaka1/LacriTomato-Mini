@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "LacriTomato Mini Windows desktop pet platform",
-  "main": "dist/main/app.js",
+  "main": "dist/src/main/app.js",
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
