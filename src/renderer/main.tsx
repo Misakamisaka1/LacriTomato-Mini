@@ -1,12 +1,9 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-
-function BootScreen() {
-  return <div data-testid="boot">LacriTomato Mini</div>;
-}
+import { AppRouter } from "./router";
 
 createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <BootScreen />
+    <AppRouter />
   </React.StrictMode>,
 );

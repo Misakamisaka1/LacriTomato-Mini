@@ -1,0 +1,79 @@
+html,
+body,
+#root {
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: transparent;
+  font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
+}
+
+.pet-root {
+  position: relative;
+  width: 100vw;
+  height: 100vh;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: transparent;
+  user-select: none;
+  -webkit-app-region: drag;
+}
+
+.pet-sprite {
+  image-rendering: auto;
+  background-repeat: no-repeat;
+  filter: drop-shadow(0 10px 18px rgba(0, 0, 0, 0.35));
+}
+
+.pet-head-menu {
+  position: absolute;
+  left: 50%;
+  bottom: 230px;
+  display: flex;
+  flex-direction: column-reverse;
+  gap: 8px;
+  transform: translateX(-50%);
+  -webkit-app-region: no-drag;
+}
+
+.pet-head-menu__key {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 128px;
+  height: 36px;
+  padding: 0 12px;
+  color: #fff;
+  background: rgba(22, 24, 30, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 10px;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+  animation: pet-key-rise 180ms ease-out both;
+  animation-delay: var(--delay);
+}
+
+.pet-head-menu__key:hover {
+  transform: translateY(-2px) scale(1.04);
+  border-color: rgba(255, 93, 93, 0.7);
+  background: rgba(54, 24, 28, 0.95);
+}
+
+.pet-head-menu__key:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+@keyframes pet-key-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
