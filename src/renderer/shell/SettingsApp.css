@@ -1,0 +1,46 @@
+.settings-root {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  min-height: 100vh;
+  background: #101114;
+  color: #f4f1ee;
+  font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
+}
+
+.settings-sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 18px;
+  background: #0b0c0f;
+  border-right: 1px solid #303541;
+}
+
+.settings-sidebar button {
+  height: 36px;
+  color: #eee;
+  background: #1b1f28;
+  border: 1px solid #303541;
+  border-radius: 8px;
+}
+
+.settings-content {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  padding: 24px;
+}
+
+.settings-content label {
+  display: grid;
+  gap: 6px;
+}
+
+.settings-content input {
+  height: 34px;
+  padding: 0 10px;
+  color: #fff;
+  background: #17191f;
+  border: 1px solid #343946;
+  border-radius: 8px;
+}
