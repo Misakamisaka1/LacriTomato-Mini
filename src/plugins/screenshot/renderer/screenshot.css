@@ -1,0 +1,35 @@
+.screenshot-overlay {
+  position: fixed;
+  inset: 0;
+  cursor: crosshair;
+  background: rgba(0, 0, 0, 0.28);
+  font-family: "Microsoft YaHei", "Segoe UI", sans-serif;
+}
+
+.screenshot-selection {
+  position: absolute;
+  border: 1px solid #f34f4f;
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.38);
+}
+
+.screenshot-toolbar {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 8px;
+  padding: 8px;
+  background: #11141a;
+  border: 1px solid #303541;
+  border-radius: 10px;
+}
+
+.screenshot-toolbar button {
+  height: 32px;
+  color: #fff;
+  background: #1d222c;
+  border: 1px solid #343946;
+  border-radius: 8px;
+}
