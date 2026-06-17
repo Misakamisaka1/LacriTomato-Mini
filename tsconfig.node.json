@@ -11,5 +11,13 @@
     "rootDir": ".",
     "types": ["node"]
   },
-  "include": ["vite.config.ts", "vitest.config.ts", "src/main", "src/preload", "src/shared", "src/plugins"]
+  "include": [
+    "vite.config.ts",
+    "vitest.config.ts",
+    "src/main/**/*.ts",
+    "src/preload/**/*.ts",
+    "src/shared/**/*.ts",
+    "src/plugins/*/manifest.ts",
+    "src/plugins/*/types.ts"
+  ]
 }

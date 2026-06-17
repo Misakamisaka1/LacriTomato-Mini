@@ -1,3 +1,4 @@
+import { TranslatorPanel } from "../plugins/translator/renderer/TranslatorPanel";
 import { PetApp } from "./shell/PetApp";
 
 export function AppRouter() {
@@ -6,6 +7,10 @@ export function AppRouter() {
 
   if (view === "pet") {
     return <PetApp />;
+  }
+
+  if (view === "translator") {
+    return <TranslatorPanel />;
   }
 
   return <PetApp />;

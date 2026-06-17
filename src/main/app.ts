@@ -5,6 +5,7 @@ import { screenshotManifest } from "../plugins/screenshot/manifest.js";
 import { translatorManifest } from "../plugins/translator/manifest.js";
 import { registerCoreIpc } from "./ipc/registerCoreIpc.js";
 import { createConfigService } from "./services/configService.js";
+import { createModelService } from "./services/modelService.js";
 import { createPluginRegistry } from "./services/pluginRegistry.js";
 import { createPetWindow } from "./windows/createPetWindow.js";
 import { createSettingsWindow } from "./windows/createSettingsWindow.js";
@@ -16,7 +17,9 @@ async function main() {
   await app.whenReady();
 
   const preloadPath = join(process.cwd(), "dist/src/preload/index.js");
+  let apiKey = "";
   const configService = createConfigService({ userDataPath: app.getPath("userData") });
+  const modelService = createModelService({ fetch });
   const pluginRegistry = createPluginRegistry([translatorManifest, screenshotManifest], defaultAppConfig.plugins);
   const petWindow = createPetWindow(preloadPath);
 
@@ -36,9 +39,14 @@ async function main() {
 
   registerCoreIpc({
     configService,
+    modelService,
     pluginRegistry,
+    getModelProviderConfig() {
+      return { ...configService.getConfig().model, apiKey };
+    },
     invokePluginAction,
-    async setApiKey() {
+    async setApiKey(nextApiKey: string) {
+      apiKey = nextApiKey.trim();
       petWindow.webContents.send("pet:bubble", "API Key 已保存");
     },
   });
