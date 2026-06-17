@@ -1,0 +1,19 @@
+{
+  "id": "lacritomato-mini",
+  "displayName": "LacriTomato Mini",
+  "description": "A small red-black cyber anime desktop pet with split black-and-white hair, red eyes, ribbon ear silhouette, and a tomato-heart charm.",
+  "spritesheetPath": "spritesheet.webp",
+  "frameWidth": 192,
+  "frameHeight": 208,
+  "columns": 8,
+  "rows": 9,
+  "animations": {
+    "idle": { "frames": [0, 1, 2, 3, 4, 5], "fps": 6, "loop": true },
+    "walkRight": { "frames": [8, 9, 10, 11, 12, 13, 14, 15], "fps": 9, "loop": true },
+    "walkLeft": { "frames": [16, 17, 18, 19, 20, 21, 22, 23], "fps": 9, "loop": true },
+    "attentive": { "frames": [24, 25, 26, 27], "fps": 7, "loop": false },
+    "happy": { "frames": [24, 25, 26, 27], "fps": 7, "loop": false },
+    "sleepy": { "frames": [40, 41, 42, 43], "fps": 4, "loop": true },
+    "thinking": { "frames": [48, 49, 50, 51, 52, 53], "fps": 6, "loop": true }
+  }
+}
