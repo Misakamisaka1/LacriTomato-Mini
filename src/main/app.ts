@@ -7,6 +7,8 @@ import { registerCoreIpc } from "./ipc/registerCoreIpc.js";
 import { createConfigService } from "./services/configService.js";
 import { createModelService } from "./services/modelService.js";
 import { createPluginRegistry } from "./services/pluginRegistry.js";
+import { createScreenshotService } from "./services/screenshotService.js";
+import { createShortcutService } from "./services/shortcutService.js";
 import { createPetWindow } from "./windows/createPetWindow.js";
 import { createSettingsWindow } from "./windows/createSettingsWindow.js";
 import { createTranslatorPanel } from "./windows/createTranslatorPanel.js";
@@ -21,6 +23,8 @@ async function main() {
   const configService = createConfigService({ userDataPath: app.getPath("userData") });
   const modelService = createModelService({ fetch });
   const pluginRegistry = createPluginRegistry([translatorManifest, screenshotManifest], defaultAppConfig.plugins);
+  const screenshotService = createScreenshotService();
+  const shortcutService = createShortcutService();
   const petWindow = createPetWindow(preloadPath);
 
   async function invokePluginAction(action: string): Promise<void> {
@@ -31,6 +35,11 @@ async function main() {
 
     if (action === "settings.open") {
       createSettingsWindow(preloadPath);
+      return;
+    }
+
+    if (action === "screenshot.capture" || action === "screenshot.captureOcr") {
+      await screenshotService.startAreaCapture(preloadPath);
       return;
     }
 
@@ -49,6 +58,17 @@ async function main() {
       apiKey = nextApiKey.trim();
       petWindow.webContents.send("pet:bubble", "API Key 已保存");
     },
+  });
+
+  const config = configService.getConfig();
+  shortcutService.register(config.shortcuts.captureArea, () => {
+    void screenshotService.startAreaCapture(preloadPath);
+  });
+  shortcutService.register(config.shortcuts.captureOcr, () => {
+    void screenshotService.startAreaCapture(preloadPath);
+  });
+  app.on("will-quit", () => {
+    shortcutService.unregisterAll();
   });
 
   tray = new Tray(join(process.cwd(), "assets/pet/spritesheet.webp"));
