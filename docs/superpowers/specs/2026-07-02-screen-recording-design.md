@@ -1,110 +1,115 @@
-# Screen Recording Design
+# 屏幕录制功能设计
 
-## Goal
+## 目标
 
-Add a Windows-first screen recording feature to LacriTomato Mini that can record screen video, system audio, and microphone audio while keeping Electron memory usage low.
+为 LacriTomato Mini 新增一个 Windows 优先的屏幕录制功能，可以录制屏幕画面、系统声音和麦克风声音，同时尽量降低 Electron 进程的内存占用。
 
-## Scope
+## 范围
 
-This feature adds a new recording plugin and main-process recording service. It integrates with the existing pet menu, global shortcuts, settings window, preload API, IPC registration, and local config service. It does not replace the existing screenshot workflow, OCR workflow, translator, chat, pinned image, or pet sprite behavior.
+本功能会新增一个录屏插件和一个主进程录屏服务，并接入现有的宠物菜单、全局快捷键、设置窗口、预加载 API、IPC 注册和本地配置服务。
 
-## Product Requirements
+本功能不替换现有截图、OCR、翻译、聊天、贴图窗口或宠物精灵图行为。
 
-- Users can start and stop screen recording from the pet menu.
-- Users can record the full display in the first implementation.
-- Users can choose a quality preset: original, 1080p, 720p, or 480p.
-- Users can choose FPS: 15, 30, or 60.
-- Users can choose whether to record system audio.
-- Users can choose whether to record microphone audio.
-- System audio recording must work without requiring users to install a virtual audio device.
-- Users can choose whether system audio and microphone audio are mixed into one track or kept as separate tracks.
-- Recordings are saved directly to disk under the app user data directory by default.
-- The pet shows recording state, elapsed time, stop action, success messages, and useful failure messages.
-- The recording pipeline must not buffer video frames or full recording blobs in renderer or main-process memory.
+## 产品要求
 
-## Existing Context
+- 用户可以从宠物菜单开始和停止屏幕录制。
+- 第一版支持录制完整显示器。
+- 用户可以选择清晰度预设：原始、1080p、720p、480p。
+- 用户可以选择帧率：15、30、60 FPS。
+- 用户可以选择是否录制系统声音。
+- 用户可以选择是否录制麦克风声音。
+- 系统声音录制必须默认可用，不能要求用户安装虚拟音频设备。
+- 用户可以选择把系统声音和麦克风声音混成一个音轨，或者保留为两个独立音轨。
+- 录制文件默认直接保存到应用的用户数据目录下。
+- 宠物需要显示录制状态、录制时长、停止入口、成功提示和有用的失败提示。
+- 录制管线不能在渲染进程或主进程内缓存视频帧，也不能缓存完整录制 Blob。
 
-- The app is an Electron, Vite, React, TypeScript desktop pet platform.
-- `src/plugins/screenshot/manifest.ts` already demonstrates a plugin contribution with menu items, shortcuts, settings sections, and capabilities.
-- `src/main/services/screenshotService.ts` uses Electron `desktopCapturer` for still image capture. That approach stores PNG data in memory and is appropriate for screenshots, not long-running video recording.
-- `src/main/app.ts` owns plugin registration, shortcut registration, pet bubble messages, and feature action dispatch.
-- `src/shared/configSchema.ts`, `src/shared/ipcChannels.ts`, `src/preload/api.ts`, and `src/preload/index.ts` define the current config and IPC boundaries.
-- `src/renderer/shell/SettingsApp.tsx` hosts plugin settings sections and should receive a new recording section.
+## 当前项目背景
 
-## Recommended Architecture
+- 当前项目是 Electron、Vite、React、TypeScript 桌面宠物应用。
+- `src/plugins/screenshot/manifest.ts` 已经展示了插件如何贡献菜单项、快捷键、设置分区和能力声明。
+- `src/main/services/screenshotService.ts` 使用 Electron `desktopCapturer` 做静态截图。该方案会把 PNG 数据保存在内存中，适合截图，不适合长时间录屏。
+- `src/main/app.ts` 负责插件注册、快捷键注册、宠物气泡提示和功能动作分发。
+- `src/shared/configSchema.ts`、`src/shared/ipcChannels.ts`、`src/preload/api.ts`、`src/preload/index.ts` 定义了当前配置和 IPC 边界。
+- `src/renderer/shell/SettingsApp.tsx` 承载插件设置页，需要新增录屏设置分区。
 
-Use a small orchestration layer in Electron and keep the heavy recording work outside the JS heap.
+## 推荐架构
 
-- The main process owns `recordingService`.
-- The service starts and stops a bundled FFmpeg process for video encoding, muxing, scaling, and file output.
-- Screen video is captured by FFmpeg using the best available Windows capture backend.
-- System audio is captured through a Windows WASAPI loopback helper and streamed to FFmpeg as PCM.
-- Microphone audio is captured by FFmpeg from the selected DirectShow device.
-- Renderer code only invokes recording actions and displays status. It never receives raw frame data, raw audio buffers, or encoded video chunks.
+使用 Electron 做轻量编排，把真正重的录制工作放到 JS 堆外执行。
 
-This design makes the app behave like a normal recorder: users can record system audio by default, and virtual audio devices are only a compatibility fallback when the primary loopback path fails.
+- 主进程持有 `recordingService`。
+- 录屏服务负责启动和停止随应用打包的 FFmpeg 进程。
+- FFmpeg 负责视频编码、音视频封装、缩放和文件落盘。
+- 屏幕画面由 FFmpeg 使用 Windows 上最合适的捕获后端直接采集。
+- 系统声音由 Windows WASAPI loopback 辅助进程采集，再以 PCM 音频流传给 FFmpeg。
+- 麦克风声音由 FFmpeg 从 DirectShow 音频设备采集。
+- 渲染进程只负责发起录制动作和展示状态，不接收原始视频帧、原始音频缓冲或编码后的视频块。
 
-## Recording Engine
+这样设计后，应用体验应该像正常录屏工具一样：默认可以录系统声音；虚拟音频设备只作为极端兼容兜底，不是正常用户路径。
 
-### Video Capture
+## 录制引擎
 
-The FFmpeg process records the display directly and writes the encoded container to disk.
+### 视频捕获
 
-Preferred Windows video backend order:
+FFmpeg 进程直接录制显示器，并把编码后的容器文件写入磁盘。
 
-1. `gfxcapture`, because it uses Windows Graphics Capture and supports monitor/window capture, scaling, frame-rate caps, cursor capture, and GPU-friendly flows in modern FFmpeg builds.
-2. `ddagrab`, because it uses Desktop Duplication API and returns D3D11 hardware frames suitable for hardware encoding.
-3. `gdigrab`, as a broad compatibility fallback when newer backends are unavailable.
+Windows 视频捕获后端优先级：
 
-Preferred encoder order:
+1. `gfxcapture`：基于 Windows Graphics Capture，支持显示器/窗口捕获、缩放、帧率上限、鼠标捕获，并且适合现代 FFmpeg 的 GPU 友好流程。
+2. `ddagrab`：基于 Desktop Duplication API，返回 D3D11 硬件帧，适合硬件编码。
+3. `gdigrab`：作为兼容性兜底，在新后端不可用时使用。
+
+视频编码器优先级：
 
 1. `h264_nvenc`
 2. `h264_qsv`
 3. `h264_amf`
 4. `h264_mf`
-5. `libx264` with a fast preset
+5. `libx264`，使用快速预设
 
-The service probes available encoders and capture backends once per app session and stores the result in memory. It selects the first working combination for each recording.
+录屏服务在每次应用会话中探测一次可用的编码器和捕获后端，并把探测结果保存在内存中。每次录制时选择第一组可用组合。
 
-### System Audio
+### 系统声音
 
-System audio is captured with WASAPI loopback. This captures the current default output device, such as speakers, headphones, HDMI, Bluetooth output, or USB audio output.
+系统声音使用 WASAPI loopback 采集。它捕获当前默认输出设备的声音，例如扬声器、耳机、HDMI、蓝牙耳机或 USB 声卡输出。
 
-Implementation boundary:
+实现边界：
 
-- Create a small Windows loopback helper executable or native utility process.
-- The helper opens the default render endpoint in loopback mode.
-- The helper emits 48 kHz stereo signed 16-bit PCM to stdout or to a named pipe.
-- The main process connects that PCM stream to FFmpeg as an audio input.
-- The helper exits when recording stops or when the output device disappears.
+- 创建一个小型 Windows loopback 辅助可执行文件或原生工具进程。
+- 辅助进程以 loopback 模式打开默认渲染端点，也就是当前正在播放声音的输出设备。
+- 辅助进程输出 48 kHz、双声道、16 位有符号 PCM 到 stdout 或命名管道。
+- 主进程把这条 PCM 流连接给 FFmpeg，作为一个音频输入。
+- 录制停止或输出设备消失时，辅助进程退出。
 
-This path avoids installing virtual audio devices and avoids keeping large audio buffers in Electron memory.
+这条路径不需要用户安装虚拟音频设备，也避免在 Electron 内存中保留大块音频缓冲。
 
-Fallback order for system audio:
+系统声音兜底顺序：
 
-1. WASAPI loopback helper.
-2. Electron/Chromium desktop audio loopback if available and reliable for the selected display.
-3. DirectShow devices that are already present, such as Stereo Mix or a user-installed virtual audio device.
-4. Continue video and microphone recording with a warning that system audio could not be captured.
+1. WASAPI loopback 辅助进程。
+2. Electron/Chromium 桌面音频 loopback，前提是当前 Electron 版本对所选显示器稳定可用。
+3. 已经存在的 DirectShow 设备，例如 Stereo Mix 或用户自己已有的虚拟音频设备。
+4. 如果系统声音无法捕获，继续录制视频和麦克风，并提示用户“系统声音未录入”。
 
-### Microphone Audio
+### 麦克风声音
 
-Microphone audio is captured through FFmpeg DirectShow input. The app lists available DirectShow audio devices and stores the selected device name in config.
+麦克风声音通过 FFmpeg DirectShow 输入采集。应用会列出可用的 DirectShow 音频设备，并把用户选择的设备名保存到配置中。
 
-The default microphone option means FFmpeg uses the current default recording device when possible. If the configured device is missing, the service falls back to no microphone and shows a warning after recording starts.
+默认麦克风选项表示尽量使用当前系统默认录音设备。如果配置中的设备不存在，服务会降级为不录麦克风，并在录制开始后给出警告。
 
-### Audio Mixing
+### 音频混合
 
-Supported audio modes:
+支持两种音频模式：
 
-- `mixed`: system audio and microphone audio are mixed into one AAC track.
-- `separate`: system audio and microphone audio are written as separate AAC tracks.
+- `mixed`：系统声音和麦克风声音混成一条 AAC 音轨。
+- `separate`：系统声音和麦克风声音分别写成两条 AAC 音轨。
 
-For `mixed`, FFmpeg uses `amix` and normalizes both audio inputs to 48 kHz stereo before mixing. For `separate`, FFmpeg maps each audio input to its own track and labels track metadata as `System Audio` and `Microphone`.
+在 `mixed` 模式下，FFmpeg 使用 `amix` 混音，并先把两个音频输入统一成 48 kHz 双声道。
 
-## Configuration
+在 `separate` 模式下，FFmpeg 分别映射两个音频输入，并把音轨元数据标记为 `System Audio` 和 `Microphone`。
 
-Add `recording` to `AppConfig`:
+## 配置
+
+在 `AppConfig` 中新增 `recording`：
 
 - `enabled: boolean`
 - `saveDirectoryName: string`
@@ -119,38 +124,38 @@ Add `recording` to `AppConfig`:
 - `captureCursor: boolean`
 - `hidePetWhenRecording: boolean`
 
-Defaults:
+默认值：
 
-- Enabled: true.
-- Save directory: `recordings`.
-- Filename pattern: `lacritomato-recording-yyyyMMdd-HHmmss`.
-- Quality preset: `1080p`.
-- FPS: 30.
-- Video bitrate: 8000 Kb/s.
-- Record system audio: true.
-- Record microphone: false.
-- Microphone device name: empty string for default device.
-- Audio mode: mixed.
-- Capture cursor: true.
-- Hide pet while recording: true.
+- 启用录屏：true。
+- 保存目录：`recordings`。
+- 文件名模式：`lacritomato-recording-yyyyMMdd-HHmmss`。
+- 清晰度预设：`1080p`。
+- 帧率：30 FPS。
+- 视频码率：8000 Kb/s。
+- 录制系统声音：true。
+- 录制麦克风：false。
+- 麦克风设备名：空字符串，表示默认设备。
+- 音频模式：mixed。
+- 捕获鼠标：true。
+- 录制时隐藏宠物：true。
 
-The config service must merge old persisted configs with these defaults so existing installs receive the new fields.
+配置服务必须把旧版持久化配置和这些新默认值合并，确保老用户升级后也能得到完整录屏配置。
 
-## Plugin Contributions
+## 插件贡献
 
-Add a `recording` plugin manifest:
+新增 `recording` 插件清单：
 
-- Menu item: `录屏`
-- Action: `recording.toggle`
-- Shortcut: `CommandOrControl+Shift+R`
-- Settings section: `录屏`
-- Capabilities: `screen:record`, `audio:system-loopback`, `audio:microphone`, `file:save`
+- 菜单项：`录屏`
+- 动作：`recording.toggle`
+- 快捷键：`CommandOrControl+Shift+R`
+- 设置分区：`录屏`
+- 能力声明：`screen:record`、`audio:system-loopback`、`audio:microphone`、`file:save`
 
-The pet menu item toggles between starting and stopping recording based on current recording state.
+宠物菜单中的录屏项根据当前状态切换：未录制时显示开始录屏，录制中显示停止录屏。
 
-## Main Process Service
+## 主进程服务
 
-Create `src/main/services/recordingService.ts` with a small public interface:
+创建 `src/main/services/recordingService.ts`，提供一个小而清晰的公共接口：
 
 - `getState(): RecordingState`
 - `start(config: AppConfig["recording"]): Promise<RecordingStartResult>`
@@ -158,23 +163,23 @@ Create `src/main/services/recordingService.ts` with a small public interface:
 - `listAudioDevices(): Promise<RecordingAudioDevice[]>`
 - `onStateChanged(callback): () => void`
 
-Responsibilities:
+职责：
 
-- Resolve the output path.
-- Probe FFmpeg capabilities.
-- Probe microphone devices.
-- Start the system audio helper when system audio is enabled.
-- Spawn FFmpeg with explicit argument arrays, not shell strings.
-- Pipe system audio PCM into FFmpeg.
-- Track recording state, start time, output path, and warnings.
-- Stop gracefully by writing `q` to FFmpeg stdin when available.
-- Kill the process after a short timeout if graceful stop fails.
-- Clean up the helper process and pipes.
-- Never store recording frame data or complete video data in memory.
+- 解析输出文件路径。
+- 探测 FFmpeg 能力。
+- 探测麦克风设备。
+- 在启用系统声音时启动系统声音辅助进程。
+- 使用明确的参数数组启动 FFmpeg，不拼接 shell 字符串。
+- 把系统声音 PCM 流传给 FFmpeg。
+- 跟踪录制状态、开始时间、输出路径和警告信息。
+- 停止时优先向 FFmpeg stdin 写入 `q`，让它优雅结束。
+- 如果优雅停止超时，再强制结束进程。
+- 清理辅助进程和管道。
+- 绝不在内存里保存录制帧数据或完整视频数据。
 
-## IPC and Preload
+## IPC 和预加载 API
 
-Add recording IPC channels:
+新增录屏 IPC 通道：
 
 - `recording:state:get`
 - `recording:start`
@@ -182,7 +187,7 @@ Add recording IPC channels:
 - `recording:devices:list-audio`
 - `recording:state:changed`
 
-Expose them as `window.petdex.recording`:
+在 `window.petdex.recording` 暴露：
 
 - `getState()`
 - `start()`
@@ -190,117 +195,117 @@ Expose them as `window.petdex.recording`:
 - `listAudioDevices()`
 - `onStateChanged(callback)`
 
-The renderer calls these methods only for control and status. It does not receive media streams.
+渲染进程只通过这些方法控制录屏和展示状态，不接收媒体流。
 
-## Settings Experience
+## 设置页体验
 
-Add a recording settings section with compact desktop-style controls:
+新增录屏设置分区，使用紧凑的桌面应用控件：
 
-- Quality preset segmented control.
-- FPS segmented control.
-- Video bitrate numeric input.
-- System audio toggle.
-- Microphone toggle.
-- Microphone device select.
-- Audio mode select.
-- Cursor capture toggle.
-- Hide pet while recording toggle.
-- Save directory name input.
-- Filename pattern input.
+- 清晰度预设分段控件。
+- FPS 分段控件。
+- 视频码率数字输入。
+- 系统声音开关。
+- 麦克风开关。
+- 麦克风设备选择框。
+- 音频模式选择框。
+- 捕获鼠标开关。
+- 录制时隐藏宠物开关。
+- 保存目录名输入。
+- 文件名模式输入。
 
-When system audio is enabled, the UI should not mention virtual audio devices as part of the normal path. If the runtime reports system audio unavailable, show a concise troubleshooting message in the recording result or status area.
+当用户开启系统声音时，设置页不应把虚拟音频设备描述成正常步骤。如果运行时报告系统声音不可用，只在录制结果或状态区域显示简短排障提示。
 
-## Pet Experience
+## 宠物体验
 
-When recording starts:
+录制开始时：
 
-- Hide the pet if `hidePetWhenRecording` is enabled.
-- Show a short bubble before hiding: `开始录屏`.
-- Keep the app tray alive.
-- Update menu state so the recording action becomes `停止录屏`.
+- 如果启用了 `hidePetWhenRecording`，隐藏宠物。
+- 隐藏前显示短气泡：`开始录屏`。
+- 保持托盘应用继续运行。
+- 更新菜单状态，让录屏动作变为 `停止录屏`。
 
-When recording stops:
+录制停止时：
 
-- Restore the pet if it was hidden by recording.
-- Show a bubble with the saved file path or a short success message.
-- If audio had warnings, include one concise warning in the bubble and keep detailed diagnostics in logs.
+- 如果宠物是录制服务隐藏的，恢复显示。
+- 显示包含保存路径或简短成功信息的气泡。
+- 如果音频有警告，在气泡中展示一条简短警告，并把详细诊断写入日志。
 
-When recording fails:
+录制失败时：
 
-- Restore the pet if it was hidden.
-- Show a concise failure message.
-- Keep partial files only when FFmpeg produced a playable file; otherwise delete the incomplete output.
+- 如果宠物是录制服务隐藏的，恢复显示。
+- 显示简短失败信息。
+- 只有当 FFmpeg 产出了可播放文件时才保留部分文件，否则删除不完整输出文件。
 
-## Error Handling
+## 错误处理
 
-- If FFmpeg is missing, show `录屏组件未找到，请重新安装应用。`
-- If no supported video backend works, show `屏幕录制启动失败，请检查系统权限或显卡驱动。`
-- If system audio loopback fails, continue recording video and microphone when possible and warn `系统声音未录入。`
-- If microphone capture fails, continue recording video and system audio when possible and warn `麦克风未录入。`
-- If both requested audio sources fail, continue video-only recording and warn `音频未录入。`
-- If the output path cannot be created, do not start FFmpeg and show `录屏保存目录不可用。`
-- If recording is already active, `start` returns the current active state instead of starting a second process.
-- If `stop` is called while idle, it returns the idle state.
+- 如果找不到 FFmpeg，提示：`录屏组件未找到，请重新安装应用。`
+- 如果没有可用的视频捕获后端，提示：`屏幕录制启动失败，请检查系统权限或显卡驱动。`
+- 如果系统声音 loopback 失败，在可行时继续录制视频和麦克风，并警告：`系统声音未录入。`
+- 如果麦克风采集失败，在可行时继续录制视频和系统声音，并警告：`麦克风未录入。`
+- 如果用户请求的两个音频源都失败，继续仅录视频，并警告：`音频未录入。`
+- 如果无法创建输出路径，不启动 FFmpeg，并提示：`录屏保存目录不可用。`
+- 如果录制已经开始，再次调用 `start` 时返回当前录制状态，不启动第二个录制进程。
+- 如果空闲时调用 `stop`，返回空闲状态。
 
-## Packaging
+## 打包
 
-Bundle a known FFmpeg build under app resources. The build must include the selected Windows capture backends, AAC audio encoding, H.264 encoding, and common hardware encoders where licensing permits.
+随应用资源打包一个确定版本的 FFmpeg。该构建必须包含选定的 Windows 捕获后端、AAC 音频编码、H.264 视频编码，以及许可允许范围内的常见硬件编码器。
 
-Bundle the WASAPI loopback helper under app resources. The helper is started only while recording system audio.
+随应用资源打包 WASAPI loopback 辅助程序。只有在录制系统声音时才启动它。
 
-The app should include license notices for FFmpeg and any helper dependencies in the distribution documentation and about/settings surface.
+应用需要在分发文档和关于/设置界面中包含 FFmpeg 以及辅助程序依赖的许可证说明。
 
-## Testing
+## 测试
 
-Unit tests:
+单元测试：
 
-- Config schema accepts recording defaults.
-- Config service merges old configs with recording defaults.
-- Recording manifest contributes menu item, shortcut, settings section, and capabilities.
-- Recording service builds FFmpeg arguments for video-only recording.
-- Recording service builds FFmpeg arguments for system audio plus microphone mixed mode.
-- Recording service builds FFmpeg arguments for separate audio tracks.
-- Recording service refuses duplicate starts.
-- Recording service stop returns idle state when already idle.
-- Recording service reports warnings for failed optional audio sources.
-- Core IPC exposes recording state, start, stop, and audio device listing.
-- Preload API exposes `window.petdex.recording`.
-- App action dispatch toggles recording through `recording.toggle`.
+- 配置 schema 接受录屏默认值。
+- 配置服务能把旧配置和录屏默认值合并。
+- 录屏插件清单贡献菜单项、快捷键、设置分区和能力声明。
+- 录屏服务能为纯视频录制生成 FFmpeg 参数。
+- 录屏服务能为系统声音加麦克风的混合模式生成 FFmpeg 参数。
+- 录屏服务能为独立音轨模式生成 FFmpeg 参数。
+- 录屏服务拒绝重复开始录制。
+- 录屏服务在空闲时停止会返回空闲状态。
+- 录屏服务能报告可选音频源失败的警告。
+- 核心 IPC 暴露录屏状态、开始、停止和音频设备列表。
+- 预加载 API 暴露 `window.petdex.recording`。
+- 应用动作分发能通过 `recording.toggle` 切换录制状态。
 
-Renderer tests:
+渲染测试：
 
-- Pet menu renders the recording action with the correct label.
-- Settings app renders recording controls and saves recording config.
-- Settings app disables microphone device selection when microphone recording is off.
-- Recording status updates when `recording:state:changed` fires.
+- 宠物菜单渲染录屏动作，并显示正确标签。
+- 设置页渲染录屏控件并保存录屏配置。
+- 关闭麦克风录制时，设置页禁用麦克风设备选择。
+- 当 `recording:state:changed` 触发时，录制状态会更新。
 
-Manual smoke tests on Windows:
+Windows 手动冒烟测试：
 
-- Record 1080p 30 FPS with system audio enabled and microphone disabled.
-- Record 720p 30 FPS with system audio and microphone mixed.
-- Record 720p 30 FPS with system audio and microphone as separate tracks.
-- Stop recording from the pet menu.
-- Confirm the saved MP4 plays in Windows media player with expected audio.
-- Confirm Electron memory does not grow with recording duration.
+- 录制 1080p、30 FPS、开启系统声音、关闭麦克风。
+- 录制 720p、30 FPS、系统声音和麦克风混合。
+- 录制 720p、30 FPS、系统声音和麦克风分离音轨。
+- 从宠物菜单停止录制。
+- 确认保存的 MP4 能在 Windows 媒体播放器中播放，并且音频符合预期。
+- 确认 Electron 内存不会随着录制时长持续增长。
 
-## Non-Goals
+## 非目标
 
-- No streaming to RTMP or other live services.
-- No webcam overlay in the first implementation.
-- No GIF recording in the first implementation.
-- No area selection in the first implementation.
-- No built-in video editor.
-- No cross-platform macOS or Linux support in the first implementation.
+- 第一版不支持 RTMP 或其它直播推流。
+- 第一版不支持摄像头画中画。
+- 第一版不支持 GIF 录制。
+- 第一版不支持区域选择录制。
+- 第一版不内置视频编辑器。
+- 第一版不支持 macOS 或 Linux。
 
-## Acceptance Criteria
+## 验收标准
 
-- Users can start and stop recording from the pet menu.
-- The first implementation records the primary display to a playable video file.
-- System audio is recorded by default on Windows without installing a virtual audio device.
-- Microphone recording can be enabled and disabled.
-- Quality preset, FPS, bitrate, cursor capture, audio mode, and save naming settings are persisted.
-- Recordings are streamed directly to disk through FFmpeg.
-- Electron renderer and main processes do not buffer frames or full video blobs.
-- If system audio capture fails, the user receives a clear warning and the app still records video when possible.
-- Existing screenshot, translator, chat, settings, and pet menu behavior continues to work.
-- Focused unit tests, renderer tests, typecheck, and build pass.
+- 用户可以从宠物菜单开始和停止录制。
+- 第一版可以把主显示器录制成可播放的视频文件。
+- Windows 上默认录入系统声音，不要求用户安装虚拟音频设备。
+- 麦克风录制可以开启和关闭。
+- 清晰度预设、FPS、码率、鼠标捕获、音频模式和保存命名设置可以持久化。
+- 录制内容通过 FFmpeg 直接流式写入磁盘。
+- Electron 渲染进程和主进程不会缓存视频帧或完整视频 Blob。
+- 如果系统声音捕获失败，用户会收到清晰警告，应用在可行时仍继续录制视频。
+- 现有截图、翻译、聊天、设置和宠物菜单行为继续正常工作。
+- 聚焦的单元测试、渲染测试、类型检查和构建通过。
