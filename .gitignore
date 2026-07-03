@@ -2,3 +2,8 @@ node_modules/
 dist/
 release/
 *.log
+.nuget/
+.dotnet-home/
+.appdata/
+.tmp/
+assets/recording/*.exe

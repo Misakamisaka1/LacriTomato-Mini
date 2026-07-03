@@ -17,4 +17,13 @@ describe("pet manifest", () => {
     expect(pet.animations.idle.frames.length).toBeGreaterThan(0);
     expect(pet.animations.attentive.frames.length).toBeGreaterThan(0);
   });
+
+  it("paces idle blinking like a natural blink cadence", () => {
+    const pet = manifest as PetManifest;
+    const idle = pet.animations.idle;
+    const cycleMs = (idle.frames.length / idle.fps) * 1000;
+
+    expect(cycleMs).toBeGreaterThanOrEqual(3000);
+    expect(cycleMs).toBeLessThanOrEqual(6000);
+  });
 });

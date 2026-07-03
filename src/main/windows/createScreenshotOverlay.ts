@@ -1,12 +1,17 @@
 import { BrowserWindow, type Rectangle } from "electron";
 import { join } from "node:path";
 
-export function createScreenshotOverlay(preloadPath: string, bounds: Rectangle): BrowserWindow {
+export function createScreenshotOverlay(
+  preloadPath: string,
+  bounds: Rectangle,
+  rendererIndexPath = join(process.cwd(), "dist/renderer/index.html"),
+): BrowserWindow {
   const window = new BrowserWindow({
     x: bounds.x,
     y: bounds.y,
     width: bounds.width,
     height: bounds.height,
+    enableLargerThanScreen: true,
     frame: false,
     transparent: true,
     resizable: false,
@@ -22,6 +27,7 @@ export function createScreenshotOverlay(preloadPath: string, bounds: Rectangle):
   });
 
   window.setAlwaysOnTop(true, "screen-saver");
-  window.loadFile(join(process.cwd(), "dist/renderer/index.html"), { query: { view: "screenshot-overlay" } });
+  window.loadFile(rendererIndexPath, { query: { view: "screenshot-overlay" } });
   return window;
 }
+

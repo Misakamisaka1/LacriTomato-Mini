@@ -1,82 +1,335 @@
-import { app, Menu, Tray } from "electron";
-import { join } from "node:path";
-import { defaultAppConfig } from "../shared/configSchema.js";
+import { app, BrowserWindow, Menu, Tray, nativeImage, safeStorage } from "electron";
+import type { ChatProactiveTopic } from "../plugins/chat/types.js";
+import type { AppConfig } from "../shared/configSchema.js";
+import { ipcChannels } from "../shared/ipcChannels.js";
+import { chatManifest } from "../plugins/chat/manifest.js";
 import { screenshotManifest } from "../plugins/screenshot/manifest.js";
+import { recordingManifest } from "../plugins/recording/manifest.js";
 import { translatorManifest } from "../plugins/translator/manifest.js";
 import { registerCoreIpc } from "./ipc/registerCoreIpc.js";
+import { registerAppShortcuts } from "./services/appShortcuts.js";
+import { createChatStateService } from "./services/chatStateService.js";
 import { createConfigService } from "./services/configService.js";
 import { createModelService } from "./services/modelService.js";
 import { createPluginRegistry } from "./services/pluginRegistry.js";
+import { createProactiveTopicService } from "./services/proactiveTopicService.js";
+import { generateProactiveTopic } from "./services/proactiveTopicGenerator.js";
+import { createProactiveTopicReplyHandler } from "./services/proactiveTopicReply.js";
+import { createOcrService } from "./services/ocrService.js";
+import { createOcrImagePreprocessor } from "./services/ocrImagePreprocessor.js";
+import { startAreaCaptureWithHiddenPet } from "./services/petHiddenCapture.js";
 import { createScreenshotService } from "./services/screenshotService.js";
+import { createRecordingService } from "./services/recordingService.js";
+import { createSecretService } from "./services/secretService.js";
+import { createSelectedTextService } from "./services/selectedTextService.js";
 import { createShortcutService } from "./services/shortcutService.js";
 import { createPetWindow } from "./windows/createPetWindow.js";
 import { createSettingsWindow } from "./windows/createSettingsWindow.js";
+import { createPinnedImageWindow } from "./windows/createPinnedImageWindow.js";
+import { createScreenshotTipWindow } from "./windows/createScreenshotTipWindow.js";
+import { createRecordingControlWindow, toggleRecordingControlWindow } from "./windows/createRecordingControlWindow.js";
 import { createTranslatorPanel } from "./windows/createTranslatorPanel.js";
+import { createChatPanel } from "./windows/createChatPanel.js";
+import { createAppResourcePaths } from "./appPaths.js";
 
 let tray: Tray | undefined;
+
+function createTrayIcon(iconPath: string) {
+  const icon = nativeImage.createFromPath(iconPath);
+
+  if (icon.isEmpty()) {
+    throw new Error(`Failed to load tray icon from path '${iconPath}'`);
+  }
+
+  return icon;
+}
 
 async function main() {
   await app.whenReady();
 
-  const preloadPath = join(process.cwd(), "dist/src/preload/index.js");
-  let apiKey = "";
-  const configService = createConfigService({ userDataPath: app.getPath("userData") });
+  const appPaths = createAppResourcePaths(app.getAppPath());
+  const preloadPath = appPaths.preloadPath;
+  const rendererIndexPath = appPaths.rendererIndexPath;
+  const userDataPath = app.getPath("userData");
+  const configService = createConfigService({ userDataPath });
+  const chatStateService = createChatStateService({ userDataPath });
+  const secretService = createSecretService({ userDataPath, safeStorage });
   const modelService = createModelService({ fetch });
-  const pluginRegistry = createPluginRegistry([translatorManifest, screenshotManifest], defaultAppConfig.plugins);
-  const screenshotService = createScreenshotService();
+  const pluginRegistry = createPluginRegistry([translatorManifest, screenshotManifest, chatManifest, recordingManifest], configService.getConfig().plugins);
+  const screenshotService = createScreenshotService({ userDataPath, rendererIndexPath });
+  const recordingService = createRecordingService({
+    userDataPath,
+    ffmpegPath: appPaths.ffmpegPath,
+    wasapiLoopbackHelperPath: appPaths.wasapiLoopbackHelperPath,
+  });
+  const selectedTextService = createSelectedTextService();
+  const ocrService = createOcrService({
+    trainedDataPath: appPaths.trainedDataPath,
+    preprocessImage: createOcrImagePreprocessor(nativeImage),
+  });
   const shortcutService = createShortcutService();
-  const petWindow = createPetWindow(preloadPath);
+  const petWindow = createPetWindow(preloadPath, configService.getConfig().pet, rendererIndexPath);
+  const proactiveTopics = new Map<string, ChatProactiveTopic>();
+  let petHiddenForRecording = false;
+  const recordingControlWindowState: { current?: BrowserWindow } = {};
+
+  function showPetEmotion(emotion: "attentive" | "thinking" | "happy" | "sleepy", bubbleText?: string, durationMs?: number) {
+    petWindow.webContents.send(ipcChannels.petEmotion, { emotion, bubbleText, durationMs });
+  }
+
+  function showPetBubble(message: string, emotion: "attentive" | "thinking" | "happy" | "sleepy" = "happy") {
+    petWindow.webContents.send(ipcChannels.petBubble, message);
+    showPetEmotion(emotion, message);
+  }
+
+  function openTranslator(initialText?: string, autoTranslate = false) {
+    createTranslatorPanel(preloadPath, { initialText, autoTranslate }, rendererIndexPath);
+  }
+
+  function openChat(initialDraft?: string) {
+    createChatPanel(preloadPath, { initialDraft }, rendererIndexPath);
+  }
+
+  function showProactiveTopic(topic: ChatProactiveTopic) {
+    proactiveTopics.set(topic.id, topic);
+    petWindow.webContents.send(ipcChannels.petBubble, {
+      text: topic.text,
+      emotion: "attentive",
+      actionLabel: "回复",
+      action: { type: "chat.replyToTopic", topicId: topic.id },
+      durationMs: 12000,
+    });
+  }
+
+  const proactiveTopicService = createProactiveTopicService({
+    getConfig: () => configService.getConfig(),
+    showTopic: showProactiveTopic,
+    recordTopic: (topic) => {
+      chatStateService.appendMessages([{ role: "assistant", content: topic.text }], configService.getConfig().chat.historyLimit);
+    },
+    generateTopic: () => {
+      const appConfig = configService.getConfig();
+      const recentHistory = chatStateService.listHistory(appConfig.chat.historyLimit).slice(-12);
+      return generateProactiveTopic({
+        modelService,
+        providerConfig: { ...appConfig.model, apiKey: secretService.getApiKey() },
+        appConfig,
+        memorySummary: chatStateService.getMemory().summary,
+        recentHistory,
+      });
+    },
+  });
+
+  const replyToProactiveTopic = createProactiveTopicReplyHandler({
+    topics: proactiveTopics,
+    openChat,
+  });
+  async function quickTranslateSelection() {
+    try {
+      const selectedText = await selectedTextService.readSelectedText();
+      if (!selectedText) {
+        showPetBubble("没有检测到选中文字", "thinking");
+        openTranslator();
+        return;
+      }
+
+      openTranslator(selectedText, true);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "读取选中文字失败";
+      showPetBubble(message, "thinking");
+      openTranslator();
+    }
+  }
+
+  function togglePetWindow() {
+    if (petWindow.isVisible()) {
+      petWindow.hide();
+      return;
+    }
+
+    petWindow.show();
+  }
+
+  async function startAreaCapture() {
+    await startAreaCaptureWithHiddenPet({
+      petWindow,
+      screenshotService,
+      preloadPath,
+      hidePetWhenCapturing: configService.getConfig().screenshot.hidePetWhenCapturing,
+    });
+  }
+  function toggleRecordingControl() {
+    toggleRecordingControlWindow(recordingControlWindowState, () => createRecordingControlWindow(preloadPath, rendererIndexPath));
+  }
+
+  async function startRecording() {
+    const recordingConfig = configService.getConfig().recording;
+    try {
+      if (recordingConfig.hidePetWhenRecording && petWindow.isVisible()) {
+        petHiddenForRecording = true;
+        petWindow.hide();
+      }
+      const result = await recordingService.start(recordingConfig);
+      const warning = result.state.warnings[0]?.message;
+      if (warning) {
+        showPetBubble(`开始录屏，${warning}`, "thinking");
+      }
+      return result;
+    } catch (error) {
+      if (petHiddenForRecording) {
+        petWindow.show();
+        petHiddenForRecording = false;
+      }
+      const message = error instanceof Error ? error.message : "录屏启动失败";
+      showPetBubble(message, "thinking");
+      throw error;
+    }
+  }
+
+  async function stopRecording() {
+    const current = recordingService.getState();
+    const wasActive = current.status === "recording" || current.status === "stopping";
+    const result = await recordingService.stop();
+    if (petHiddenForRecording) {
+      petWindow.show();
+      petHiddenForRecording = false;
+    }
+    if (wasActive) {
+      const warning = result.warnings[0]?.message;
+      showPetBubble(warning ? `录屏已保存，${warning}` : "录屏已保存", warning ? "thinking" : "happy");
+    }
+    return result;
+  }
+
+  function registerShortcuts(config: AppConfig) {
+    const activeShortcutIds = [
+      ...pluginRegistry.getShortcuts().map((shortcut) => shortcut.id as keyof AppConfig["shortcuts"]),
+      "togglePet" as const,
+    ];
+    const results = registerAppShortcuts(shortcutService, config.shortcuts, {
+      captureArea() {
+        void startAreaCapture();
+      },
+      openTranslator() {
+        openTranslator();
+      },
+      quickTranslateSelection() {
+        void quickTranslateSelection();
+      },
+      togglePet: togglePetWindow,
+      toggleRecording() {
+        toggleRecordingControl();
+      },
+    }, activeShortcutIds);
+    const fallbackUsed = results.filter((result) => result.registered && result.fallbackUsed && result.registeredAccelerator);
+    const failed = results.filter((result) => !result.registered);
+
+    if (fallbackUsed.length > 0) {
+      const labels = fallbackUsed.map((result) => result.registeredAccelerator).join("、");
+      showPetBubble(`快捷键被占用，已改用 ${labels}`, "thinking");
+    }
+
+    if (failed.length > 0) {
+      console.warn("Some shortcuts failed to register:", failed);
+      showPetBubble(`有 ${failed.length} 个快捷键注册失败，可能被其它软件占用`, "thinking");
+    }
+  }
 
   async function invokePluginAction(action: string): Promise<void> {
     if (action === "translator.open") {
-      createTranslatorPanel(preloadPath);
+      showPetEmotion("thinking", "正在打开翻译");
+      openTranslator();
+      return;
+    }
+
+    if (action === "chat.open") {
+      showPetEmotion("thinking", "正在打开聊天");
+      openChat();
       return;
     }
 
     if (action === "settings.open") {
-      createSettingsWindow(preloadPath);
+      showPetEmotion("attentive", "正在打开设置");
+      createSettingsWindow(preloadPath, rendererIndexPath);
       return;
     }
 
-    if (action === "screenshot.capture" || action === "screenshot.captureOcr") {
-      await screenshotService.startAreaCapture(preloadPath);
+    if (action === "recording.toggle") {
+      toggleRecordingControl();
       return;
     }
 
-    petWindow.webContents.send("pet:bubble", `功能 ${action} 已收到`);
+    if (action === "screenshot.capture") {
+      showPetEmotion("thinking", "正在准备截图");
+      await startAreaCapture();
+      return;
+    }
+
+    showPetBubble(`功能 ${action} 已收到`, "attentive");
   }
 
   registerCoreIpc({
     configService,
+    preloadPath,
+    rendererIndexPath,
     modelService,
+    ocrService,
+    screenshotService,
+    recordingService,
+    startRecording,
+    stopRecording,
     pluginRegistry,
+    chatStateService,
     getModelProviderConfig() {
-      return { ...configService.getConfig().model, apiKey };
+      return { ...configService.getConfig().model, apiKey: secretService.getApiKey() };
     },
     invokePluginAction,
-    async setApiKey(nextApiKey: string) {
-      apiKey = nextApiKey.trim();
-      petWindow.webContents.send("pet:bubble", "API Key 已保存");
+    onConfigChanged(nextConfig) {
+      pluginRegistry.updateEnabledPlugins(nextConfig.plugins);
+      if (nextConfig.pet.alwaysOnTop) {
+        petWindow.setAlwaysOnTop(true, "screen-saver");
+      } else {
+        petWindow.setAlwaysOnTop(false);
+      }
+      BrowserWindow.getAllWindows().forEach((window) => {
+        window.webContents.send(ipcChannels.configChanged, nextConfig);
+      });
+      registerShortcuts(nextConfig);
+      proactiveTopicService.reschedule();
     },
+    async setApiKey(nextApiKey: string) {
+      secretService.setApiKey(nextApiKey);
+      showPetBubble("API Key 已保存", "happy");
+    },
+    hasApiKey() {
+      return secretService.hasApiKey();
+    },
+    getApiKeyStatus() {
+      return secretService.getStorageStatus();
+    },
+    pinCapture(captureId: string) {
+      createPinnedImageWindow(preloadPath, captureId, rendererIndexPath);
+    },
+    showScreenshotTip(message: string) {
+      createScreenshotTipWindow(preloadPath, message, rendererIndexPath);
+    },
+    replyToProactiveTopic,
   });
 
-  const config = configService.getConfig();
-  shortcutService.register(config.shortcuts.captureArea, () => {
-    void screenshotService.startAreaCapture(preloadPath);
-  });
-  shortcutService.register(config.shortcuts.captureOcr, () => {
-    void screenshotService.startAreaCapture(preloadPath);
-  });
+  registerShortcuts(configService.getConfig());
+  proactiveTopicService.start();
   app.on("will-quit", () => {
+    proactiveTopicService.stop();
+    void stopRecording();
     shortcutService.unregisterAll();
   });
 
-  tray = new Tray(join(process.cwd(), "assets/pet/spritesheet.webp"));
+  tray = new Tray(createTrayIcon(appPaths.trayIconPath));
   tray.setToolTip("LacriTomato Mini");
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: "显示宠物", click: () => petWindow.show() },
     { label: "隐藏宠物", click: () => petWindow.hide() },
-    { label: "设置", click: () => createSettingsWindow(preloadPath) },
+    { label: "设置", click: () => createSettingsWindow(preloadPath, rendererIndexPath) },
     { type: "separator" },
     { label: "退出", click: () => app.quit() },
   ]));
@@ -90,3 +343,4 @@ main().catch((error) => {
   console.error(error);
   app.quit();
 });
+

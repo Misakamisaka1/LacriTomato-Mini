@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -21,7 +21,9 @@ describe("config service", () => {
     const config = service.getConfig();
 
     expect(config.pet.defaultHeight).toBe(224);
-    expect(readFileSync(join(dir, "config.json"), "utf8")).toContain("deepseek-flash");
+    expect(config.model.model).toBe("deepseek-v4-flash");
+    expect(config.recording.qualityPreset).toBe("1080p");
+    expect(readFileSync(join(dir, "config.json"), "utf8")).toContain("deepseek-v4-flash");
   });
 
   it("merges persisted config with defaults", () => {
@@ -32,5 +34,35 @@ describe("config service", () => {
 
     expect(service.getConfig().pet.defaultHeight).toBe(192);
     expect(service.getConfig().shortcuts.captureArea).toBe("CommandOrControl+Shift+A");
+    expect(service.getConfig().shortcuts.toggleRecording).toBe("CommandOrControl+Shift+R");
+  });
+
+  it("merges old persisted config with recording defaults", () => {
+    dir = mkdtempSync(join(tmpdir(), "petdex-config-"));
+    writeFileSync(join(dir, "config.json"), JSON.stringify({
+      plugins: { translator: true, screenshot: true, chat: true },
+      shortcuts: { captureArea: "CommandOrControl+Alt+A" },
+    }), "utf8");
+
+    const service = createConfigService({ userDataPath: dir });
+
+    expect(service.getConfig().recording).toEqual(expect.objectContaining({
+      saveDirectoryName: "recordings",
+      recordSystemAudio: true,
+      audioMode: "mixed",
+    }));
+    expect(service.getConfig().plugins.recording).toBe(true);
+    expect(service.getConfig().shortcuts.toggleRecording).toBe("CommandOrControl+Shift+R");
+  });
+
+  it("migrates the old DeepSeek flash model id to the current API model id", () => {
+    dir = mkdtempSync(join(tmpdir(), "petdex-config-"));
+    writeFileSync(join(dir, "config.json"), JSON.stringify({
+      model: { model: "deepseek-flash" },
+    }), "utf8");
+
+    const service = createConfigService({ userDataPath: dir });
+
+    expect(service.getConfig().model.model).toBe("deepseek-v4-flash");
   });
 });

@@ -2,6 +2,9 @@ export type PluginCapability =
   | "model:text"
   | "model:vision"
   | "screen:capture"
+  | "screen:record"
+  | "audio:system-loopback"
+  | "audio:microphone"
   | "clipboard:text"
   | "clipboard:image"
   | "file:save"
@@ -33,6 +36,22 @@ export interface PluginPanelContribution {
   id: string;
   title: string;
   rendererRoute: string;
+}
+
+export interface PluginInfoContribution {
+  id: string;
+  name: string;
+  version: string;
+  enabled: boolean;
+  capabilities: PluginCapability[];
+}
+
+export interface PluginContributions {
+  menuItems: PluginMenuItem[];
+  shortcuts: PluginShortcutContribution[];
+  settingsSections: PluginSettingsSection[];
+  panels: PluginPanelContribution[];
+  plugins: PluginInfoContribution[];
 }
 
 export interface PetdexPluginManifest {

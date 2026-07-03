@@ -6,12 +6,9 @@ export const screenshotManifest: PetdexPluginManifest = {
   version: "0.1.0",
   menuItems: [
     { id: "screenshot.capture", label: "截图", action: "screenshot.capture", icon: "ScanLine" },
-    { id: "screenshot.captureOcr", label: "截图并 OCR", action: "screenshot.captureOcr", icon: "ScanText" },
-    { id: "screenshot.pins", label: "贴图管理", action: "screenshot.openPins", icon: "Pin" },
   ],
   shortcuts: [
     { id: "captureArea", label: "截图", defaultAccelerator: "CommandOrControl+Shift+A" },
-    { id: "captureOcr", label: "截图并 OCR", defaultAccelerator: "CommandOrControl+Shift+O" },
   ],
   settingsSections: [
     { id: "screenshot.settings", label: "截图", rendererRoute: "screenshot-settings" },

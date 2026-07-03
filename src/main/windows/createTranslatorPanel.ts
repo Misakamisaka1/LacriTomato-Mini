@@ -1,10 +1,21 @@
 import { BrowserWindow } from "electron";
 import { join } from "node:path";
 
-export function createTranslatorPanel(preloadPath: string): BrowserWindow {
+export interface TranslatorPanelOptions {
+  initialText?: string;
+  autoTranslate?: boolean;
+}
+
+export function createTranslatorPanel(
+  preloadPath: string,
+  options: TranslatorPanelOptions = {},
+  rendererIndexPath = join(process.cwd(), "dist/renderer/index.html"),
+): BrowserWindow {
   const window = new BrowserWindow({
-    width: 760,
-    height: 560,
+    width: 980,
+    height: 720,
+    minWidth: 900,
+    minHeight: 680,
     title: "翻译",
     frame: false,
     transparent: false,
@@ -16,6 +27,12 @@ export function createTranslatorPanel(preloadPath: string): BrowserWindow {
     },
   });
 
-  window.loadFile(join(process.cwd(), "dist/renderer/index.html"), { query: { view: "translator" } });
+  window.loadFile(rendererIndexPath, {
+    query: {
+      view: "translator",
+      ...(options.initialText ? { text: options.initialText } : {}),
+      ...(options.autoTranslate ? { autoTranslate: "1" } : {}),
+    },
+  });
   return window;
 }

@@ -13,9 +13,9 @@
   },
   "include": [
     "vite.config.ts",
+    "vite.preload.config.ts",
     "vitest.config.ts",
     "src/main/**/*.ts",
-    "src/preload/**/*.ts",
     "src/shared/**/*.ts",
     "src/plugins/*/manifest.ts",
     "src/plugins/*/types.ts"

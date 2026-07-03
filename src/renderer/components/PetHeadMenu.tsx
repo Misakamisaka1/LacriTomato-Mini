@@ -1,5 +1,5 @@
 import type { CSSProperties } from "react";
-import { Languages, MessageCircle, Pin, ScanLine, ScanText, Settings } from "lucide-react";
+import { Languages, MessageCircle, Pin, ScanLine, ScanText, Settings, Video } from "lucide-react";
 import type { PluginMenuItem } from "../../shared/pluginTypes";
 import "../shell/PetApp.css";
 
@@ -10,21 +10,32 @@ const icons = {
   ScanLine,
   ScanText,
   Settings,
+  Video,
 };
 
 interface PetHeadMenuProps {
   open: boolean;
   items: PluginMenuItem[];
+  placement?: "top" | "left" | "right";
   onAction(action: string): void;
 }
 
-export function PetHeadMenu({ open, items, onAction }: PetHeadMenuProps) {
+export function PetHeadMenu({ open, items, placement = "top", onAction }: PetHeadMenuProps) {
   if (!open) {
     return null;
   }
 
+  const menuStyle = placement === "top"
+    ? { bottom: "calc(var(--pet-height) + var(--pet-menu-gap))" }
+    : undefined;
+
   return (
-    <div className="pet-head-menu" aria-label="宠物功能菜单">
+    <div
+      className={`pet-head-menu pet-head-menu--${placement}`}
+      data-placement={placement}
+      style={menuStyle}
+      aria-label="宠物功能菜单"
+    >
       {items.map((item, index) => {
         const Icon = icons[item.icon as keyof typeof icons] ?? Settings;
 

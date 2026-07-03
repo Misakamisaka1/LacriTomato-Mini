@@ -1,13 +1,17 @@
 import { BrowserWindow } from "electron";
 import { join } from "node:path";
 
-export function createSettingsWindow(preloadPath: string): BrowserWindow {
+export function createSettingsWindow(
+  preloadPath: string,
+  rendererIndexPath = join(process.cwd(), "dist/renderer/index.html"),
+): BrowserWindow {
   const window = new BrowserWindow({
     width: 980,
     height: 700,
     minWidth: 820,
     minHeight: 560,
     title: "LacriTomato Mini 设置",
+    autoHideMenuBar: true,
     webPreferences: {
       preload: preloadPath,
       contextIsolation: true,
@@ -15,6 +19,7 @@ export function createSettingsWindow(preloadPath: string): BrowserWindow {
     },
   });
 
-  window.loadFile(join(process.cwd(), "dist/renderer/index.html"), { query: { view: "settings" } });
+  window.setMenu(null);
+  window.loadFile(rendererIndexPath, { query: { view: "settings" } });
   return window;
 }

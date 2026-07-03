@@ -2,19 +2,35 @@ import { z } from "zod";
 
 export const modelConfigSchema = z.object({
   baseURL: z.string().default("https://api.deepseek.com"),
-  model: z.string().default("deepseek-flash"),
+  model: z.string().default("deepseek-v4-flash"),
   temperature: z.number().min(0).max(2).default(0.2),
   timeoutMs: z.number().int().positive().default(60000),
+});
+
+export const recordingConfigSchema = z.object({
+  enabled: z.boolean(),
+  saveDirectoryName: z.string(),
+  saveDirectoryPath: z.string().default(""),
+  filenamePattern: z.string(),
+  qualityPreset: z.enum(["original", "1080p", "720p", "480p"]),
+  frameRate: z.union([z.literal(15), z.literal(30), z.literal(60)]),
+  videoBitrateKbps: z.number().int().min(500).max(100000),
+  recordSystemAudio: z.boolean(),
+  recordMicrophone: z.boolean(),
+  microphoneDeviceName: z.string(),
+  audioMode: z.enum(["mixed", "separate"]),
+  captureCursor: z.boolean(),
+  hidePetWhenRecording: z.boolean(),
 });
 
 export const appConfigSchema = z.object({
   model: modelConfigSchema,
   shortcuts: z.object({
     captureArea: z.string(),
-    captureOcr: z.string(),
     openTranslator: z.string(),
     quickTranslateSelection: z.string(),
     togglePet: z.string(),
+    toggleRecording: z.string(),
   }),
   translator: z.object({
     defaultSourceLanguage: z.string(),
@@ -24,9 +40,13 @@ export const appConfigSchema = z.object({
   screenshot: z.object({
     hidePetWhenCapturing: z.boolean(),
     saveDirectoryName: z.string(),
+    saveDirectoryPath: z.string().default(""),
     filenamePattern: z.string(),
+    copyFormat: z.enum(["png"]),
+    defaultAnnotationColor: z.string(),
     enableScrollingCaptureExperiment: z.boolean(),
   }),
+  recording: recordingConfigSchema,
   ocr: z.object({
     mode: z.enum(["local", "model"]),
     languages: z.array(z.string()),
@@ -39,6 +59,16 @@ export const appConfigSchema = z.object({
     wanderEnabled: z.boolean(),
     animationSpeed: z.number().min(0.5).max(2),
   }),
+  chat: z.object({
+    personalityId: z.string(),
+    promptTemplateId: z.string(),
+    customPrompt: z.string(),
+    historyLimit: z.number().int().min(0).max(200),
+    memoryEnabled: z.boolean(),
+    proactiveTopicsEnabled: z.boolean(),
+    proactiveTopicMinMinutes: z.number().int().min(1).max(1440),
+    proactiveTopicMaxMinutes: z.number().int().min(1).max(1440),
+  }),
   plugins: z.record(z.boolean()),
 });
 
@@ -47,16 +77,16 @@ export type AppConfig = z.infer<typeof appConfigSchema>;
 export const defaultAppConfig: AppConfig = {
   model: {
     baseURL: "https://api.deepseek.com",
-    model: "deepseek-flash",
+    model: "deepseek-v4-flash",
     temperature: 0.2,
     timeoutMs: 60000,
   },
   shortcuts: {
     captureArea: "CommandOrControl+Shift+A",
-    captureOcr: "CommandOrControl+Shift+O",
     openTranslator: "CommandOrControl+Shift+T",
     quickTranslateSelection: "CommandOrControl+Shift+Y",
     togglePet: "CommandOrControl+Shift+P",
+    toggleRecording: "CommandOrControl+Shift+R",
   },
   translator: {
     defaultSourceLanguage: "auto",
@@ -66,8 +96,26 @@ export const defaultAppConfig: AppConfig = {
   screenshot: {
     hidePetWhenCapturing: true,
     saveDirectoryName: "screenshots",
+    saveDirectoryPath: "",
     filenamePattern: "lacritomato-yyyyMMdd-HHmmss",
+    copyFormat: "png",
+    defaultAnnotationColor: "#ff4d4f",
     enableScrollingCaptureExperiment: true,
+  },
+  recording: {
+    enabled: true,
+    saveDirectoryName: "recordings",
+    saveDirectoryPath: "",
+    filenamePattern: "lacritomato-recording-yyyyMMdd-HHmmss",
+    qualityPreset: "1080p",
+    frameRate: 30,
+    videoBitrateKbps: 8000,
+    recordSystemAudio: true,
+    recordMicrophone: false,
+    microphoneDeviceName: "",
+    audioMode: "mixed",
+    captureCursor: true,
+    hidePetWhenRecording: true,
   },
   ocr: {
     mode: "local",
@@ -78,11 +126,23 @@ export const defaultAppConfig: AppConfig = {
     defaultHeight: 224,
     opacity: 1,
     alwaysOnTop: true,
-    wanderEnabled: true,
+    wanderEnabled: false,
     animationSpeed: 1,
+  },
+  chat: {
+    personalityId: "warm-companion",
+    promptTemplateId: "daily-companion",
+    customPrompt: "",
+    historyLimit: 200,
+    memoryEnabled: true,
+    proactiveTopicsEnabled: true,
+    proactiveTopicMinMinutes: 20,
+    proactiveTopicMaxMinutes: 60,
   },
   plugins: {
     translator: true,
     screenshot: true,
+    chat: true,
+    recording: true,
   },
 };

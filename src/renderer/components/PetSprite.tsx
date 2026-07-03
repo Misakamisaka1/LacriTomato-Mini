@@ -7,6 +7,7 @@ interface PetSpriteProps {
   frameIndex: number;
   columns: number;
   displayHeight: number;
+  animationName?: string;
 }
 
 export function PetSprite(props: PetSpriteProps) {
@@ -17,6 +18,7 @@ export function PetSprite(props: PetSpriteProps) {
   return (
     <div
       className="pet-sprite"
+      data-animation={props.animationName}
       style={{
         width: props.frameWidth * scale,
         height: props.frameHeight * scale,
