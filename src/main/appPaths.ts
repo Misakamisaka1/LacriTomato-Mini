@@ -7,6 +7,8 @@ export interface AppResourcePaths {
   trainedDataPath: string;
   ffmpegPath: string;
   wasapiLoopbackHelperPath: string;
+  bundledPetManifestPath: string;
+  bundledPetSpritesheetPath: string;
 }
 
 export function createAppResourcePaths(appRoot: string): AppResourcePaths {
@@ -17,5 +19,7 @@ export function createAppResourcePaths(appRoot: string): AppResourcePaths {
     trainedDataPath: appRoot,
     ffmpegPath: join(appRoot, "assets/recording/ffmpeg.exe"),
     wasapiLoopbackHelperPath: join(appRoot, "assets/recording/wasapi-loopback-helper.exe"),
+    bundledPetManifestPath: join(appRoot, "assets/pet/pet.json"),
+    bundledPetSpritesheetPath: join(appRoot, "assets/pet/spritesheet.webp"),
   };
 }

@@ -13,6 +13,8 @@ describe("app resource paths", () => {
       trainedDataPath: appRoot,
       ffmpegPath: join(appRoot, "assets/recording/ffmpeg.exe"),
       wasapiLoopbackHelperPath: join(appRoot, "assets/recording/wasapi-loopback-helper.exe"),
+      bundledPetManifestPath: join(appRoot, "assets/pet/pet.json"),
+      bundledPetSpritesheetPath: join(appRoot, "assets/pet/spritesheet.webp"),
     });
   });
 });
