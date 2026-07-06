@@ -384,3 +384,24 @@
 .settings-card select::-webkit-scrollbar-thumb:hover {
   background: #4b5565;
 }
+.settings-skin-panel {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  background: #151820;
+  border: 1px solid #303541;
+  border-radius: 8px;
+}
+
+.settings-skin-label {
+  display: block;
+  margin-bottom: 4px;
+  color: #aeb6c5;
+  font-size: 12px;
+}
+
+.settings-skin-meta {
+  overflow-wrap: anywhere;
+  color: #d7deeb;
+  font-size: 13px;
+}

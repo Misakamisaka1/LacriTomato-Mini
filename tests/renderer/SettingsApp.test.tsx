@@ -16,7 +16,48 @@ const setMemory = vi.fn();
 const clearMemory = vi.fn();
 const clearHistory = vi.fn();
 const showTip = vi.fn();
+const getCurrentSkin = vi.fn();
+const importSkinFolder = vi.fn();
+const resetSkin = vi.fn();
+const openPetdex = vi.fn();
+const onSkinChanged = vi.fn(() => vi.fn());
 
+const bundledSkinResult = {
+  skin: {
+    manifest: {
+      id: "lacritomato-mini",
+      displayName: "LacriTomato Mini",
+      spritesheetPath: "spritesheet.webp",
+      frameWidth: 192,
+      frameHeight: 208,
+      columns: 8,
+      rows: 9,
+      animations: { idle: { frames: [0], fps: 6, loop: true } },
+    },
+    spritesheetUrl: "file:///assets/pet/spritesheet.webp",
+    source: "bundled",
+  },
+  fallbackUsed: false,
+};
+
+const mintSkinResult = {
+  skin: {
+    manifest: {
+      id: "mint",
+      displayName: "Mint",
+      spritesheetPath: "spritesheet.webp",
+      frameWidth: 192,
+      frameHeight: 208,
+      columns: 8,
+      rows: 9,
+      animations: { idle: { frames: [0], fps: 6, loop: true } },
+    },
+    spritesheetUrl: "file:///D:/pets/mint/spritesheet.webp",
+    sourcePath: "D:/pets/mint",
+    source: "local",
+  },
+  fallbackUsed: false,
+};
 const pluginContributions = {
   menuItems: [],
   shortcuts: [
@@ -56,6 +97,11 @@ describe("SettingsApp", () => {
     clearMemory.mockResolvedValue({ summary: "", updatedAt: "2026-06-30T08:00:02.000Z" });
     clearHistory.mockResolvedValue([]);
     showTip.mockResolvedValue(undefined);
+    getCurrentSkin.mockResolvedValue(bundledSkinResult);
+    importSkinFolder.mockResolvedValue(mintSkinResult);
+    resetSkin.mockResolvedValue(bundledSkinResult);
+    openPetdex.mockResolvedValue(undefined);
+    onSkinChanged.mockImplementation(() => vi.fn());
     window.petdex = {
       config: {
         get: vi.fn().mockResolvedValue(defaultAppConfig),
@@ -94,7 +140,13 @@ describe("SettingsApp", () => {
       screenshot: {
         showTip,
       } as never,
-      windowControls: {
+      pet: {
+        getCurrentSkin,
+        importSkinFolder,
+        resetSkin,
+        openPetdex,
+        onSkinChanged,
+      },      windowControls: {
         close: vi.fn(),
       },
     };
@@ -312,6 +364,33 @@ describe("SettingsApp", () => {
     }));
   });
 
+  it("shows pet skin controls and imports a selected skin", async () => {
+    render(<SettingsApp />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "桌宠" }));
+
+    expect(await screen.findByText("当前皮肤")).toBeTruthy();
+    expect(screen.getByText("LacriTomato Mini")).toBeTruthy();
+    expect(screen.getByText("内置皮肤")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "导入皮肤文件夹" }));
+
+    expect(await screen.findByText("Mint")).toBeTruthy();
+    expect(importSkinFolder).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(showTip).toHaveBeenCalledWith("皮肤已切换为 Mint"));
+  });
+
+  it("opens Petdex and resets the active skin", async () => {
+    render(<SettingsApp />);
+    fireEvent.click(await screen.findByRole("button", { name: "桌宠" }));
+
+    fireEvent.click(await screen.findByRole("button", { name: "打开 Petdex" }));
+    fireEvent.click(screen.getByRole("button", { name: "恢复默认皮肤" }));
+
+    expect(openPetdex).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(resetSkin).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(showTip).toHaveBeenCalledWith("已恢复默认皮肤"));
+  });
   it("shows plugin toggles with their declared capabilities", async () => {
     render(<SettingsApp />);
 

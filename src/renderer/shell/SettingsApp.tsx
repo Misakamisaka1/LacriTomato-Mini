@@ -1,6 +1,7 @@
 import { type KeyboardEvent, useEffect, useMemo, useState } from "react";
 import { chatPersonalityTemplates } from "../../plugins/chat/templates";
 import type { AppConfig } from "../../shared/configSchema";
+import type { PetSkinLoadResult } from "../../shared/petManifest";
 import { defaultAppConfig } from "../../shared/configSchema";
 import type { PluginContributions, PluginShortcutContribution } from "../../shared/pluginTypes";
 import { captureShortcutAccelerator } from "../../shared/shortcutAccelerator";
@@ -206,6 +207,7 @@ export function SettingsApp() {
   const [apiKeyStorageSecure, setApiKeyStorageSecure] = useState(true);
   const [chatMemory, setChatMemory] = useState("");
   const [recordingAudioDevices, setRecordingAudioDevices] = useState<Array<{ id: string; name: string; default?: boolean }>>([]);
+  const [petSkin, setPetSkin] = useState<PetSkinLoadResult | undefined>();
   const [notice, setNotice] = useState("");
   const [connectionBusy, setConnectionBusy] = useState(false);
 
@@ -246,8 +248,9 @@ export function SettingsApp() {
       api.plugins.listContributions().catch(() => undefined),
       api.chat?.getMemory().catch(() => undefined),
       api.recording?.listAudioDevices().catch(() => []),
+      api.pet?.getCurrentSkin?.().catch(() => undefined),
     ])
-      .then(([nextConfig, apiKeyStatus, nextContributions, nextMemory, nextRecordingDevices]) => {
+      .then(([nextConfig, apiKeyStatus, nextContributions, nextMemory, nextRecordingDevices, nextPetSkin]) => {
         const status = apiKeyStatus ?? { saved: false, secure: true };
         setConfig(withVisibleChatPrompt(nextConfig));
         setApiKeySaved(status.saved);
@@ -255,6 +258,7 @@ export function SettingsApp() {
         setContributions(nextContributions);
         setChatMemory(nextMemory?.summary ?? "");
         setRecordingAudioDevices(nextRecordingDevices ?? []);
+        setPetSkin(nextPetSkin);
       })
       .catch((error) => {
         void showSettingsTip(getErrorMessage(error, "读取设置失败"));
@@ -304,6 +308,57 @@ export function SettingsApp() {
       }
     } catch (error) {
       void showSettingsTip(getErrorMessage(error, "选择文件夹失败"));
+    }
+  }
+
+  async function importPetSkin() {
+    const api = window.petdex;
+    if (!api?.pet?.importSkinFolder) {
+      void showSettingsTip(disconnectedMessage);
+      return;
+    }
+
+    try {
+      const result = await api.pet.importSkinFolder();
+      if (!result) {
+        return;
+      }
+
+      setPetSkin(result);
+      const name = result.skin.manifest.displayName;
+      void showSettingsTip(result.warning ?? `皮肤已切换为 ${name}`);
+    } catch (error) {
+      void showSettingsTip(getErrorMessage(error, "导入皮肤失败"));
+    }
+  }
+
+  async function resetPetSkin() {
+    const api = window.petdex;
+    if (!api?.pet?.resetSkin) {
+      void showSettingsTip(disconnectedMessage);
+      return;
+    }
+
+    try {
+      const result = await api.pet.resetSkin();
+      setPetSkin(result);
+      void showSettingsTip("已恢复默认皮肤");
+    } catch (error) {
+      void showSettingsTip(getErrorMessage(error, "恢复默认皮肤失败"));
+    }
+  }
+
+  async function openPetdex() {
+    const api = window.petdex;
+    if (!api?.pet?.openPetdex) {
+      void showSettingsTip(disconnectedMessage);
+      return;
+    }
+
+    try {
+      await api.pet.openPetdex();
+    } catch (error) {
+      void showSettingsTip(getErrorMessage(error, "打开 Petdex 失败"));
     }
   }
 
@@ -622,6 +677,21 @@ export function SettingsApp() {
         {activeSection === "pet" && (
           <section className="settings-panel" aria-labelledby="settings-pet-heading">
             <h1 id="settings-pet-heading">桌宠</h1>
+            <section className="settings-skin-panel" aria-label="宠物皮肤">
+              <div>
+                <span className="settings-skin-label">当前皮肤</span>
+                <strong>{petSkin?.skin.manifest.displayName ?? "LacriTomato Mini"}</strong>
+              </div>
+              <div className="settings-skin-meta">
+                {petSkin?.skin.source === "local" ? petSkin.skin.sourcePath : "内置皮肤"}
+              </div>
+              {petSkin?.warning && <p className="settings-field-note">{petSkin.warning}</p>}
+              <div className="settings-action-row">
+                <button type="button" className="settings-secondary" onClick={() => void importPetSkin()}>导入皮肤文件夹</button>
+                <button type="button" className="settings-secondary" onClick={() => void openPetdex()}>打开 Petdex</button>
+                <button type="button" className="settings-secondary" onClick={() => void resetPetSkin()}>恢复默认皮肤</button>
+              </div>
+            </section>
             <label>
               宠物高度
               <input
