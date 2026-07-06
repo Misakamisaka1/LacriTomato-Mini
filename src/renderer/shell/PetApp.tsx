@@ -10,7 +10,7 @@ import {
   type PetEmotion,
   type PetEmotionPayload,
 } from "../../shared/petBehavior";
-import type { PetManifest } from "../../shared/petManifest";
+import type { PetManifest, PetSkinLoadResult } from "../../shared/petManifest";
 import type { PluginMenuItem } from "../../shared/pluginTypes";
 import { PetHeadMenu } from "../components/PetHeadMenu";
 import { PetSprite } from "../components/PetSprite";
@@ -26,8 +26,8 @@ const localMenuItems = fallbackMenuItems.filter(
   (item) => item.action === "settings.open",
 );
 
-const manifest = petManifest as PetManifest;
-const spritesheetUrl = "../../assets/pet/spritesheet.webp";
+const fallbackManifest = petManifest as PetManifest;
+const fallbackSpritesheetUrl = "../../assets/pet/spritesheet.webp";
 const behaviorTickMs = 400;
 const petMenuKeyWidth = 64;
 const petMenuKeyGap = 6;
@@ -81,8 +81,8 @@ function appendLocalMenuItems(pluginItems: PluginMenuItem[]) {
   ];
 }
 
-function getAnimation(name: PetAnimationName) {
-  return manifest.animations[name] ?? manifest.animations.idle;
+function getAnimation(activeManifest: PetManifest, name: PetAnimationName) {
+  return activeManifest.animations[name] ?? activeManifest.animations.idle ?? { frames: [0], fps: 6, loop: true };
 }
 
 function isPetEmotion(value: unknown): value is PetEmotion {
@@ -183,6 +183,11 @@ function getPetContentSize(options: {
 }
 export function PetApp() {
   const [config, setConfig] = useState<AppConfig>(defaultAppConfig);
+  const [skin, setSkin] = useState(() => ({
+    manifest: fallbackManifest,
+    spritesheetUrl: fallbackSpritesheetUrl,
+  }));
+  const activeManifest = skin.manifest;
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuOpening, setMenuOpening] = useState(false);
   const [menuItems, setMenuItems] = useState<PluginMenuItem[]>(fallbackMenuItems);
@@ -201,7 +206,7 @@ export function PetApp() {
   const hoverActive = !menuOpen && !menuOpening && !dragging && hovering;
   const hoverAnimation = hoverActive ? "happy" : undefined;
   const displayAnimation = menuOpen || menuOpening ? "idle" : dragAnimation ?? hoverAnimation ?? (isWalkingAnimation(behavior.animation) ? "idle" : behavior.animation);
-  const currentAnimation = useMemo(() => getAnimation(displayAnimation), [displayAnimation]);
+  const currentAnimation = useMemo(() => getAnimation(activeManifest, displayAnimation), [activeManifest, displayAnimation]);
   const interactionPaused = menuOpen || menuOpening || hoverActive || dragging;
 
   const applyEmotion = useCallback((emotion: PetEmotion, bubbleText?: string, durationMs?: number) => {
@@ -231,6 +236,20 @@ export function PetApp() {
     }));
   }, []);
 
+  const applySkinResult = useCallback((result: PetSkinLoadResult | undefined) => {
+    if (!result?.skin) {
+      return;
+    }
+
+    setSkin({
+      manifest: result.skin.manifest,
+      spritesheetUrl: result.skin.spritesheetUrl,
+    });
+
+    if (result.warning) {
+      applyBubble({ text: result.warning, emotion: "thinking", durationMs: 2600 });
+    }
+  }, [applyBubble]);
   const loadMenuItems = useCallback(async () => {
     try {
       const items = await window.petdex?.plugins.listMenuItems();
@@ -279,7 +298,7 @@ export function PetApp() {
       const nextPlacement = await window.petdex?.pet?.chooseMenuPlacement(getHorizontalMenuWidth(nextItems.length))
         .catch(() => "top" as PetMenuPlacement) ?? "top";
       const nextDisplayHeight = config.pet.defaultHeight;
-      const nextContentPetWidth = Math.ceil((manifest.frameWidth * nextDisplayHeight) / manifest.frameHeight);
+      const nextContentPetWidth = Math.ceil((activeManifest.frameWidth * nextDisplayHeight) / activeManifest.frameHeight);
       void nextDisplayHeight;
       void nextContentPetWidth;
       await Promise.resolve(window.petdex?.pet?.showMenuLayer?.(nextItems)).catch(() => undefined);
@@ -291,7 +310,7 @@ export function PetApp() {
       menuOpeningRef.current = false;
       setMenuOpening(false);
     }
-  }, [loadMenuItems]);
+  }, [activeManifest, config.pet.defaultHeight, loadMenuItems]);
 
   const toggleMenu = useCallback((source: "main" | "renderer" = "main") => {
     const now = Date.now();
@@ -371,6 +390,27 @@ export function PetApp() {
   }, []);
 
   useEffect(() => {
+    let active = true;
+
+    void window.petdex?.pet?.getCurrentSkin?.()
+      .then((result) => {
+        if (active) {
+          applySkinResult(result);
+        }
+      })
+      .catch(() => undefined);
+
+    return () => {
+      active = false;
+    };
+  }, [applySkinResult]);
+
+  useEffect(() => {
+    return window.petdex?.pet?.onSkinChanged?.((result) => {
+      applySkinResult(result);
+    });
+  }, [applySkinResult]);
+  useEffect(() => {
     void refreshMenuItems();
   }, [refreshMenuItems]);
 
@@ -411,7 +451,7 @@ export function PetApp() {
 
   useEffect(() => {
     setFrame(0);
-  }, [displayAnimation]);
+  }, [displayAnimation, activeManifest]);
 
   useEffect(() => {
     const fps = Math.max(1, currentAnimation.fps * config.pet.animationSpeed);
@@ -510,9 +550,9 @@ export function PetApp() {
   }
 
   const safeFrame = Math.min(frame, currentAnimation.frames.length - 1);
-  const frameIndex = currentAnimation.frames[safeFrame] ?? manifest.animations.idle.frames[0] ?? 0;
+  const frameIndex = currentAnimation.frames[safeFrame] ?? activeManifest.animations.idle?.frames[0] ?? 0;
   const displayHeight = config.pet.defaultHeight;
-  const spriteWidth = (manifest.frameWidth * displayHeight) / manifest.frameHeight;
+  const spriteWidth = (activeManifest.frameWidth * displayHeight) / activeManifest.frameHeight;
   const contentPetWidth = Math.ceil(spriteWidth);
   const sideMenuOpen = menuOpen && menuPlacement !== "top";
   const { width: contentWidth, height: contentHeight } = getPetContentSize({
@@ -595,15 +635,15 @@ export function PetApp() {
         className="pet-body"
         data-behavior-mode={visualBehaviorMode}
         data-hovering={hoverActive ? "true" : undefined}
-        aria-label="LacriTomato Mini desktop pet"
+        aria-label={`${activeManifest.displayName} desktop pet`}
         style={{ width: spriteWidth, height: displayHeight }}
       >
         <PetSprite
-          spritesheetUrl={spritesheetUrl}
-          frameWidth={manifest.frameWidth}
-          frameHeight={manifest.frameHeight}
+          spritesheetUrl={skin.spritesheetUrl}
+          frameWidth={activeManifest.frameWidth}
+          frameHeight={activeManifest.frameHeight}
           frameIndex={frameIndex}
-          columns={manifest.columns}
+          columns={activeManifest.columns}
           displayHeight={displayHeight}
           animationName={displayAnimation}
         />

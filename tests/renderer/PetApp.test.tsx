@@ -8,6 +8,7 @@ let bubbleFromMain: ((message: unknown) => void) | undefined;
 let emotionFromMain: ((payload: { emotion: string; bubbleText?: string }) => void) | undefined;
 let menuActionFromMain: ((action: string) => void) | undefined;
 let configChangedFromMain: ((config: typeof defaultAppConfig) => void) | undefined;
+let skinChangedFromMain: ((result: unknown) => void) | undefined;
 
 const defaultPluginItems = [
   { id: "translator.open", label: "翻译", action: "translator.open", icon: "Languages" },
@@ -17,6 +18,25 @@ const defaultPluginItems = [
 const screenshotOnlyItems = [
   { id: "screenshot.capture", label: "截图", action: "screenshot.capture", icon: "ScanLine" },
 ];
+
+const skinResult = {
+  skin: {
+    manifest: {
+      id: "mint",
+      displayName: "Mint",
+      spritesheetPath: "spritesheet.webp",
+      frameWidth: 100,
+      frameHeight: 200,
+      columns: 2,
+      rows: 1,
+      animations: { idle: { frames: [0], fps: 6, loop: true } },
+    },
+    spritesheetUrl: "file:///D:/pets/mint/spritesheet.webp",
+    sourcePath: "D:/pets/mint",
+    source: "local",
+  },
+  fallbackUsed: false,
+};
 
 const api = {
   config: {
@@ -61,6 +81,14 @@ const api = {
     hideMenuLayer: vi.fn(),
     selectMenuAction: vi.fn(),
     chooseMenuPlacement: vi.fn(),
+    getCurrentSkin: vi.fn(),
+    importSkinFolder: vi.fn(),
+    resetSkin: vi.fn(),
+    openPetdex: vi.fn(),
+    onSkinChanged: vi.fn((callback: (result: unknown) => void) => {
+      skinChangedFromMain = callback;
+      return vi.fn();
+    }),
     onBubble: vi.fn((callback: (message: unknown) => void) => {
       bubbleFromMain = callback;
       return vi.fn();
@@ -106,15 +134,37 @@ describe("PetApp", () => {
     api.config.get.mockResolvedValue(defaultAppConfig);
     api.plugins.listMenuItems.mockResolvedValue(defaultPluginItems);
     api.pet.chooseMenuPlacement.mockResolvedValue("top");
+    api.pet.getCurrentSkin.mockResolvedValue(undefined);
     openMenuFromMain = undefined;
     bubbleFromMain = undefined;
     emotionFromMain = undefined;
     menuActionFromMain = undefined;
     configChangedFromMain = undefined;
+    skinChangedFromMain = undefined;
     window.petdex = api;
   });
 
 
+  it("loads a runtime pet skin and sizes the body from its manifest", async () => {
+    api.pet.getCurrentSkin.mockResolvedValueOnce(skinResult);
+
+    const { container } = await renderPetApp();
+
+    await waitFor(() => expect(api.pet.getCurrentSkin).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(api.pet.syncBodySize).toHaveBeenLastCalledWith(112, 224));
+    expect(container.querySelector<HTMLElement>(".pet-sprite")?.style.backgroundImage).toContain("mint/spritesheet.webp");
+  });
+
+  it("applies skin changed events without restarting the pet", async () => {
+    const { container } = await renderPetApp();
+
+    act(() => {
+      skinChangedFromMain?.(skinResult);
+    });
+
+    await waitFor(() => expect(api.pet.syncBodySize).toHaveBeenLastCalledWith(112, 224));
+    expect(container.querySelector<HTMLElement>(".pet-sprite")?.style.backgroundImage).toContain("mint/spritesheet.webp");
+  });
   it("sizes the transparent pet window to the scaled sprite while the menu is closed", async () => {
     api.config.get.mockResolvedValue({
       ...defaultAppConfig,
