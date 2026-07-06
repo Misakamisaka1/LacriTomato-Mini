@@ -1,4 +1,5 @@
-import { app, BrowserWindow, Menu, Tray, nativeImage, safeStorage } from "electron";
+import { pathToFileURL } from "node:url";
+import { app, BrowserWindow, Menu, Tray, nativeImage, safeStorage, shell } from "electron";
 import type { ChatProactiveTopic } from "../plugins/chat/types.js";
 import type { AppConfig } from "../shared/configSchema.js";
 import { ipcChannels } from "../shared/ipcChannels.js";
@@ -18,6 +19,7 @@ import { createProactiveTopicReplyHandler } from "./services/proactiveTopicReply
 import { createOcrService } from "./services/ocrService.js";
 import { createOcrImagePreprocessor } from "./services/ocrImagePreprocessor.js";
 import { startAreaCaptureWithHiddenPet } from "./services/petHiddenCapture.js";
+import { createPetSkinService } from "./services/petSkinService.js";
 import { createScreenshotService } from "./services/screenshotService.js";
 import { createRecordingService } from "./services/recordingService.js";
 import { createSecretService } from "./services/secretService.js";
@@ -52,6 +54,20 @@ async function main() {
   const rendererIndexPath = appPaths.rendererIndexPath;
   const userDataPath = app.getPath("userData");
   const configService = createConfigService({ userDataPath });
+  const petSkinService = createPetSkinService({
+    getConfig: () => configService.getConfig(),
+    bundledManifestPath: appPaths.bundledPetManifestPath,
+    bundledSpritesheetPath: appPaths.bundledPetSpritesheetPath,
+    readImageSize(path) {
+      return nativeImage.createFromPath(path).getSize();
+    },
+    makeFileUrl(path) {
+      return pathToFileURL(path).toString();
+    },
+    openExternal(url) {
+      return shell.openExternal(url);
+    },
+  });
   const chatStateService = createChatStateService({ userDataPath });
   const secretService = createSecretService({ userDataPath, safeStorage });
   const modelService = createModelService({ fetch });
@@ -276,6 +292,7 @@ async function main() {
     ocrService,
     screenshotService,
     recordingService,
+    petSkinService,
     startRecording,
     stopRecording,
     pluginRegistry,

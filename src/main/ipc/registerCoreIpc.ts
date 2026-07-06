@@ -12,6 +12,7 @@ import type { ConfigService } from "../services/configService.js";
 import type { ModelProviderConfig, ModelService } from "../services/modelService.js";
 import type { OcrService } from "../services/ocrService.js";
 import type { PluginRegistry } from "../services/pluginRegistry.js";
+import type { PetSkinService } from "../services/petSkinService.js";
 import { setPinnedImageFullscreenPreview } from "../services/pinnedImagePreview.js";
 import { togglePinnedImageZoom } from "../services/pinnedImageZoom.js";
 import type { ScreenshotService } from "../services/screenshotService.js";
@@ -33,6 +34,7 @@ export interface CoreIpcDependencies {
   ocrService?: OcrService;
   screenshotService?: ScreenshotService;
   recordingService?: RecordingService;
+  petSkinService?: PetSkinService;
   startRecording?(): Promise<RecordingStartResult>;
   stopRecording?(): Promise<RecordingStopResult>;
   pluginRegistry: PluginRegistry;
@@ -179,12 +181,26 @@ function readMenuAction(payload: unknown) {
 
   return undefined;
 }
+
+function broadcastPetSkinChanged(result: unknown) {
+  BrowserWindow.getAllWindows().forEach((window) => {
+    window.webContents.send(ipcChannels.petSkinChanged, result);
+  });
+}
 function ensureChatStateService(deps: CoreIpcDependencies) {
   if (!deps.chatStateService) {
     throw new Error("聊天服务未就绪");
   }
 
   return deps.chatStateService;
+}
+
+function ensurePetSkinService(deps: CoreIpcDependencies) {
+  if (!deps.petSkinService) {
+    throw new Error("宠物皮肤服务未就绪");
+  }
+
+  return deps.petSkinService;
 }
 
 function readChatContent(request: ChatSendRequest) {
@@ -348,6 +364,41 @@ export function registerCoreIpc(deps: CoreIpcDependencies): void {
       : await dialog.showOpenDialog(options);
 
     return result.canceled ? undefined : result.filePaths[0];
+  });
+  ipcMain.handle(ipcChannels.petSkinGetCurrent, () => ensurePetSkinService(deps).getCurrentSkin());
+  ipcMain.handle(ipcChannels.petSkinImportFolder, async (event) => {
+    const petSkinService = ensurePetSkinService(deps);
+    const browserWindow = BrowserWindow.fromWebContents(event.sender);
+    const options: OpenDialogOptions = {
+      title: "选择宠物皮肤文件夹",
+      properties: ["openDirectory"],
+    };
+    const selection = browserWindow
+      ? await dialog.showOpenDialog(browserWindow, options)
+      : await dialog.showOpenDialog(options);
+
+    if (selection.canceled || !selection.filePaths[0]) {
+      return undefined;
+    }
+
+    const selectedPath = selection.filePaths[0];
+    const result = petSkinService.importSkinFolder(selectedPath);
+    if (!result.fallbackUsed) {
+      const nextConfig = deps.configService.setConfig({ pet: { skinSourcePath: selectedPath } });
+      deps.onConfigChanged?.(nextConfig);
+    }
+    broadcastPetSkinChanged(result);
+    return result;
+  });
+  ipcMain.handle(ipcChannels.petSkinReset, async () => {
+    const result = ensurePetSkinService(deps).resetSkin();
+    const nextConfig = deps.configService.setConfig({ pet: { skinSourcePath: "" } });
+    deps.onConfigChanged?.(nextConfig);
+    broadcastPetSkinChanged(result);
+    return result;
+  });
+  ipcMain.handle(ipcChannels.petSkinOpenPetdex, async () => {
+    await ensurePetSkinService(deps).openPetdex();
   });
   ipcMain.handle(ipcChannels.secureConfigSetApiKey, async (_event, apiKey: string) => {
     await deps.setApiKey?.(apiKey);

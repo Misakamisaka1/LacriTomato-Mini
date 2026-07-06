@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import type { IpcRendererEvent } from "electron";
 import type { AppConfig } from "../shared/configSchema.js";
 import type { PetEmotionPayload } from "../shared/petBehavior.js";
+import type { PetSkinLoadResult } from "../shared/petManifest.js";
 import type { RecordingState } from "../plugins/recording/types.js";
 import { ipcChannels } from "../shared/ipcChannels.js";
 import type { PetdexApi } from "./api.js";
@@ -55,6 +56,15 @@ const api: PetdexApi = {
     hideMenuLayer: () => ipcRenderer.invoke(ipcChannels.petHideMenuLayer),
     selectMenuAction: (action) => ipcRenderer.invoke(ipcChannels.petSelectMenuAction, { action }),
     chooseMenuPlacement: (menuWidth) => ipcRenderer.invoke(ipcChannels.petChooseMenuPlacement, { menuWidth }),
+    getCurrentSkin: () => ipcRenderer.invoke(ipcChannels.petSkinGetCurrent),
+    importSkinFolder: () => ipcRenderer.invoke(ipcChannels.petSkinImportFolder),
+    resetSkin: () => ipcRenderer.invoke(ipcChannels.petSkinReset),
+    openPetdex: () => ipcRenderer.invoke(ipcChannels.petSkinOpenPetdex),
+    onSkinChanged: (callback) => {
+      const listener = (_event: IpcRendererEvent, result: PetSkinLoadResult) => callback(result);
+      ipcRenderer.on(ipcChannels.petSkinChanged, listener);
+      return () => ipcRenderer.removeListener(ipcChannels.petSkinChanged, listener);
+    },
     onBubble: (callback) => {
       const listener = (_event: IpcRendererEvent, message: unknown) => {
         if (typeof message === "string" || (message && typeof message === "object")) {
