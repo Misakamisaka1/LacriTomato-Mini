@@ -15,3 +15,18 @@ export interface PetManifest {
   rows: number;
   animations: Record<string, PetAnimationDefinition>;
 }
+
+export type PetSkinSource = "bundled" | "local";
+
+export interface PetSkin {
+  manifest: PetManifest;
+  spritesheetUrl: string;
+  sourcePath?: string;
+  source: PetSkinSource;
+}
+
+export interface PetSkinLoadResult {
+  skin: PetSkin;
+  fallbackUsed: boolean;
+  warning?: string;
+}

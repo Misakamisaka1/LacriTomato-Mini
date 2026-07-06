@@ -53,6 +53,7 @@ describe("config service", () => {
     }));
     expect(service.getConfig().plugins.recording).toBe(true);
     expect(service.getConfig().shortcuts.toggleRecording).toBe("CommandOrControl+Shift+R");
+    expect(service.getConfig().pet.skinSourcePath).toBe("");
   });
 
   it("migrates the old DeepSeek flash model id to the current API model id", () => {

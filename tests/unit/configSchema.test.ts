@@ -31,6 +31,11 @@ describe("config schema", () => {
     expect(defaultAppConfig.pet.defaultHeight).toBe(224);
   });
 
+  it("defaults pet skin source to bundled skin", () => {
+    expect(defaultAppConfig.pet.skinSourcePath).toBe("");
+    expect(appConfigSchema.parse(defaultAppConfig).pet.skinSourcePath).toBe("");
+  });
+
   it("keeps automatic wandering disabled by default", () => {
     expect(defaultAppConfig.pet.wanderEnabled).toBe(false);
   });

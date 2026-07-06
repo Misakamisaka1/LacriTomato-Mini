@@ -58,6 +58,7 @@ export const appConfigSchema = z.object({
     alwaysOnTop: z.boolean(),
     wanderEnabled: z.boolean(),
     animationSpeed: z.number().min(0.5).max(2),
+    skinSourcePath: z.string().default(""),
   }),
   chat: z.object({
     personalityId: z.string(),
@@ -128,6 +129,7 @@ export const defaultAppConfig: AppConfig = {
     alwaysOnTop: true,
     wanderEnabled: false,
     animationSpeed: 1,
+    skinSourcePath: "",
   },
   chat: {
     personalityId: "warm-companion",
