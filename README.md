@@ -5,6 +5,7 @@ Windows 优先的 Electron 桌面宠物平台。项目把 LacriTomato Mini 桌�
 ## 功能概览
 
 - 桌面宠物：透明置顶宠物窗口，支持拖动、显示/隐藏、透明度、尺寸、动画速度和游走开关。
+- 宠物换肤：可从 Petdex 下载兼容宠物文件夹，在设置页导入 `pet.json + spritesheet.webp/png` 后切换当前桌宠皮肤。
 - 宠物菜单：右键唤起横向头像菜单，插件启用状态变化后会自动刷新。
 - 翻译插件：支持 OpenAI 兼容接口，默认面向 DeepSeek 配置；可保存 API Key、设置源语言/目标语言并保留翻译历史。
 - 快速翻译：复制当前选中文本，打开翻译面板并自动开始翻译。
@@ -71,6 +72,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\prepare-recording-
 - 截图默认保存到用户数据目录下的 `screenshots`。
 - 录屏默认保存到用户数据目录下的 `recordings`。
 - 聊天历史和长期记忆保存在用户数据目录中，受设置页的历史条数和记忆开关控制。
+
+## 宠物皮肤
+
+可在 [Petdex](https://petdex.dev/) 浏览宠物，使用 `npx petdex install <slug>` 下载到本机后，在设置页的「桌宠」分区选择包含 `pet.json` 和 `spritesheet.webp` 或 `spritesheet.png` 的文件夹。导入失败时应用会保留内置 LacriTomato Mini 皮肤。
 
 ## 常用命令
 
