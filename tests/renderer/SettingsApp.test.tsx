@@ -146,7 +146,8 @@ describe("SettingsApp", () => {
         resetSkin,
         openPetdex,
         onSkinChanged,
-      },      windowControls: {
+      } as never,
+      windowControls: {
         close: vi.fn(),
       },
     };
