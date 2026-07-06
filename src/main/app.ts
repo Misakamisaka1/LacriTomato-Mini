@@ -19,7 +19,7 @@ import { createProactiveTopicReplyHandler } from "./services/proactiveTopicReply
 import { createOcrService } from "./services/ocrService.js";
 import { createOcrImagePreprocessor } from "./services/ocrImagePreprocessor.js";
 import { startAreaCaptureWithHiddenPet } from "./services/petHiddenCapture.js";
-import { createPetSkinService } from "./services/petSkinService.js";
+import { createPetSkinService, readSpritesheetImageSize } from "./services/petSkinService.js";
 import { createScreenshotService } from "./services/screenshotService.js";
 import { createRecordingService } from "./services/recordingService.js";
 import { createSecretService } from "./services/secretService.js";
@@ -58,9 +58,7 @@ async function main() {
     getConfig: () => configService.getConfig(),
     bundledManifestPath: appPaths.bundledPetManifestPath,
     bundledSpritesheetPath: appPaths.bundledPetSpritesheetPath,
-    readImageSize(path) {
-      return nativeImage.createFromPath(path).getSize();
-    },
+    readImageSize: readSpritesheetImageSize,
     makeFileUrl(path) {
       return pathToFileURL(path).toString();
     },

@@ -24,6 +24,77 @@ export interface PetSkinService {
   openPetdex(): Promise<void>;
 }
 
+function readUInt24LE(buffer: Buffer, offset: number) {
+  return buffer[offset] | (buffer[offset + 1] << 8) | (buffer[offset + 2] << 16);
+}
+
+function readPngImageSize(buffer: Buffer): ImageSize | undefined {
+  if (buffer.length < 24 || buffer.toString("ascii", 1, 4) !== "PNG" || buffer.toString("ascii", 12, 16) !== "IHDR") {
+    return undefined;
+  }
+
+  return {
+    width: buffer.readUInt32BE(16),
+    height: buffer.readUInt32BE(20),
+  };
+}
+
+function readWebpImageSize(buffer: Buffer): ImageSize | undefined {
+  if (buffer.length < 30 || buffer.toString("ascii", 0, 4) !== "RIFF" || buffer.toString("ascii", 8, 12) !== "WEBP") {
+    return undefined;
+  }
+
+  let offset = 12;
+  while (offset + 8 <= buffer.length) {
+    const chunkType = buffer.toString("ascii", offset, offset + 4);
+    const chunkSize = buffer.readUInt32LE(offset + 4);
+    const dataOffset = offset + 8;
+
+    if (dataOffset + chunkSize > buffer.length) {
+      return undefined;
+    }
+
+    if (chunkType === "VP8X" && chunkSize >= 10) {
+      return {
+        width: readUInt24LE(buffer, dataOffset + 4) + 1,
+        height: readUInt24LE(buffer, dataOffset + 7) + 1,
+      };
+    }
+
+    if (chunkType === "VP8L" && chunkSize >= 5 && buffer[dataOffset] === 0x2f) {
+      const bits = buffer.readUInt32LE(dataOffset + 1);
+      return {
+        width: (bits & 0x3fff) + 1,
+        height: ((bits >>> 14) & 0x3fff) + 1,
+      };
+    }
+
+    if (chunkType === "VP8 " && chunkSize >= 10
+      && buffer[dataOffset + 3] === 0x9d
+      && buffer[dataOffset + 4] === 0x01
+      && buffer[dataOffset + 5] === 0x2a) {
+      return {
+        width: buffer.readUInt16LE(dataOffset + 6) & 0x3fff,
+        height: buffer.readUInt16LE(dataOffset + 8) & 0x3fff,
+      };
+    }
+
+    offset = dataOffset + chunkSize + (chunkSize % 2);
+  }
+
+  return undefined;
+}
+
+export function readSpritesheetImageSize(path: string): ImageSize {
+  const buffer = readFileSync(path);
+  const size = readPngImageSize(buffer) ?? readWebpImageSize(buffer);
+  if (!size || size.width <= 0 || size.height <= 0) {
+    throw new Error("无法读取皮肤图片尺寸");
+  }
+
+  return size;
+}
+
 const defaultFrameWidth = 192;
 const defaultFrameHeight = 208;
 const defaultFps = 6;

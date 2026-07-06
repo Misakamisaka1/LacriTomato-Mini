@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createPetSkinService } from "../../src/main/services/petSkinService";
+import { createPetSkinService, readSpritesheetImageSize } from "../../src/main/services/petSkinService";
 import { defaultAppConfig } from "../../src/shared/configSchema";
 
 const cleanupDirs: string[] = [];
@@ -56,6 +56,30 @@ afterEach(() => {
 });
 
 describe("pet skin service", () => {
+  it("reads the bundled WebP spritesheet dimensions from the file header", () => {
+    expect(readSpritesheetImageSize(join(process.cwd(), "assets/pet/spritesheet.webp"))).toEqual({
+      width: 1536,
+      height: 1872,
+    });
+  });
+
+  it("loads the real bundled skin with header-based image dimensions", () => {
+    const service = createPetSkinService({
+      getConfig: () => defaultAppConfig,
+      bundledManifestPath: join(process.cwd(), "assets/pet/pet.json"),
+      bundledSpritesheetPath: join(process.cwd(), "assets/pet/spritesheet.webp"),
+      readImageSize: readSpritesheetImageSize,
+      makeFileUrl: (path) => `file:///${path.replaceAll("\\", "/")}`,
+      openExternal: vi.fn(),
+    });
+
+    const result = service.getCurrentSkin();
+
+    expect(result.fallbackUsed).toBe(false);
+    expect(result.skin.manifest.id).toBe("lacritomato-mini");
+    expect(result.skin.spritesheetUrl).toContain("spritesheet.webp");
+  });
+
   it("loads the bundled fallback skin", () => {
     const service = createService();
 
