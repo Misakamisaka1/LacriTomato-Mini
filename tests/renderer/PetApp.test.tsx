@@ -85,6 +85,11 @@ const api = {
     importSkinFolder: vi.fn(),
     resetSkin: vi.fn(),
     openPetdex: vi.fn(),
+    listPetdexPets: vi.fn(),
+    installPetdexSkin: vi.fn(),
+    listManagedSkins: vi.fn(),
+    useManagedSkin: vi.fn(),
+    deleteManagedSkin: vi.fn(),
     onSkinChanged: vi.fn((callback: (result: unknown) => void) => {
       skinChangedFromMain = callback;
       return vi.fn();
@@ -368,14 +373,14 @@ describe("PetApp", () => {
     dispatchPointerLikeEvent(root, "pointerdown", { button: 0, screenX: 100, screenY: 100 });
     dispatchPointerLikeEvent(root, "pointermove", { screenX: 120, screenY: 100 });
 
-    expect(sprite()?.getAttribute("data-animation")).toBe("walkRight");
+    expect(sprite()?.getAttribute("data-animation")).toBe("runRight");
 
     dispatchPointerLikeEvent(root, "pointermove", { screenX: 90, screenY: 100 });
 
-    expect(sprite()?.getAttribute("data-animation")).toBe("walkLeft");
+    expect(sprite()?.getAttribute("data-animation")).toBe("runLeft");
   });
 
-  it("switches to happy animation while the pointer is hovering over the pet", async () => {
+  it("switches to jumping animation while the pointer is hovering over the pet", async () => {
     const { container } = await renderPetApp();
     const root = container.querySelector(".pet-root");
     const body = () => container.querySelector(".pet-body");
@@ -388,7 +393,7 @@ describe("PetApp", () => {
     fireEvent.pointerEnter(root);
 
     expect(body()?.getAttribute("data-hovering")).toBe("true");
-    expect(sprite()?.getAttribute("data-animation")).toBe("happy");
+    expect(sprite()?.getAttribute("data-animation")).toBe("jumping");
 
     fireEvent.pointerLeave(root);
 
@@ -566,6 +571,17 @@ describe("PetApp", () => {
     expect(screen.queryByText("API Key 已保存")).toBeNull();
   });
 
+  it("uses the failed animation for error bubbles", async () => {
+    const { container } = await renderPetApp();
+    const sprite = () => container.querySelector(".pet-sprite");
+
+    act(() => {
+      bubbleFromMain?.("操作失败");
+    });
+
+    expect(sprite()?.getAttribute("data-animation")).toBe("failed");
+  });
+
   it("keeps the pet still while wandering is disabled", async () => {
     vi.useFakeTimers();
     const { container } = await renderPetApp();
@@ -616,8 +632,3 @@ describe("PetApp", () => {
     expect(sprite()?.getAttribute("data-animation")).toBe("idle");
   });
 });
-
-
-
-
-

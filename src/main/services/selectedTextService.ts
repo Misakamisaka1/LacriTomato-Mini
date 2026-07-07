@@ -17,6 +17,8 @@ export interface SelectedTextServiceOptions {
   wait?: (ms: number) => Promise<void>;
   beforeCopyDelayMs?: number;
   afterCopyDelayMs?: number;
+  clipboardPollIntervalMs?: number;
+  copyTimeoutMs?: number;
 }
 
 function sleep(ms: number) {
@@ -58,6 +60,29 @@ export function createSelectedTextService(options: SelectedTextServiceOptions = 
   const wait = options.wait ?? sleep;
   const beforeCopyDelayMs = options.beforeCopyDelayMs ?? 90;
   const afterCopyDelayMs = options.afterCopyDelayMs ?? 160;
+  const clipboardPollIntervalMs = Math.max(10, options.clipboardPollIntervalMs ?? 60);
+  const copyTimeoutMs = Math.max(afterCopyDelayMs, options.copyTimeoutMs ?? 900);
+
+  async function readClipboardTextUntilAvailable() {
+    await wait(afterCopyDelayMs);
+
+    const initialText = textClipboard.readText().trim();
+    if (initialText) {
+      return initialText;
+    }
+
+    const remainingPollTimeMs = Math.max(0, copyTimeoutMs - afterCopyDelayMs);
+    const maxAttempts = Math.max(1, Math.ceil(remainingPollTimeMs / clipboardPollIntervalMs));
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      await wait(clipboardPollIntervalMs);
+      const nextText = textClipboard.readText().trim();
+      if (nextText) {
+        return nextText;
+      }
+    }
+
+    return undefined;
+  }
 
   return {
     async readSelectedText() {
@@ -66,12 +91,10 @@ export function createSelectedTextService(options: SelectedTextServiceOptions = 
       textClipboard.clear();
       await wait(beforeCopyDelayMs);
       await sendCopyShortcut();
-      await wait(afterCopyDelayMs);
-
-      const selectedText = textClipboard.readText().trim();
+      const selectedText = await readClipboardTextUntilAvailable();
       textClipboard.writeText(previousText);
 
-      return selectedText || undefined;
+      return selectedText;
     },
   };
 }

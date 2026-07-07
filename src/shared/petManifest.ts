@@ -30,3 +30,31 @@ export interface PetSkinLoadResult {
   fallbackUsed: boolean;
   warning?: string;
 }
+
+export interface PetdexCatalogPet {
+  slug: string;
+  displayName: string;
+  kind: string;
+  submittedBy: string;
+  previewUrl: string;
+  heat: number;
+  heatLabel: string;
+}
+
+export interface PetdexCatalogResult {
+  generatedAt: string;
+  total: number;
+  pets: PetdexCatalogPet[];
+}
+
+export interface ManagedPetSkin {
+  slug: string;
+  displayName: string;
+  sourcePath: string;
+  previewUrl: string;
+  current: boolean;
+}
+
+export interface ManagedPetSkinResult {
+  skins: ManagedPetSkin[];
+}

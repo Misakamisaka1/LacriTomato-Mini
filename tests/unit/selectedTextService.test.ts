@@ -47,4 +47,38 @@ describe("selected text service", () => {
     await expect(service.readSelectedText()).resolves.toBeUndefined();
     expect(clipboard.writeText).toHaveBeenLastCalledWith("previous clipboard");
   });
+
+  it("waits for delayed clipboard text after sending the copy shortcut", async () => {
+    let clipboardText = "previous clipboard";
+    let copyRequested = false;
+    let waitsAfterCopy = 0;
+    const clipboard = {
+      readText: vi.fn(() => clipboardText),
+      writeText: vi.fn((text: string) => {
+        clipboardText = text;
+      }),
+      clear: vi.fn(() => {
+        clipboardText = "";
+      }),
+    };
+    const sendCopyShortcut = vi.fn(() => {
+      copyRequested = true;
+    });
+    const wait = vi.fn(async () => {
+      if (!copyRequested) {
+        return;
+      }
+
+      waitsAfterCopy += 1;
+      if (waitsAfterCopy === 2) {
+        clipboardText = "delayed selected text";
+      }
+    });
+    const service = createSelectedTextService({ clipboard, sendCopyShortcut, wait });
+
+    const selectedText = await service.readSelectedText();
+
+    expect(selectedText).toBe("delayed selected text");
+    expect(clipboard.writeText).toHaveBeenLastCalledWith("previous clipboard");
+  });
 });

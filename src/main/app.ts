@@ -1,8 +1,10 @@
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { app, BrowserWindow, Menu, Tray, nativeImage, safeStorage, shell } from "electron";
 import type { ChatProactiveTopic } from "../plugins/chat/types.js";
 import type { AppConfig } from "../shared/configSchema.js";
 import { ipcChannels } from "../shared/ipcChannels.js";
+import type { PetEmotion } from "../shared/petBehavior.js";
 import { chatManifest } from "../plugins/chat/manifest.js";
 import { screenshotManifest } from "../plugins/screenshot/manifest.js";
 import { recordingManifest } from "../plugins/recording/manifest.js";
@@ -65,6 +67,21 @@ async function main() {
     openExternal(url) {
       return shell.openExternal(url);
     },
+    petdexLibraryPath: join(userDataPath, "petdex-skins"),
+    async fetchJson(url) {
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Petdex 请求失败 (${response.status})`);
+      }
+      return response.json();
+    },
+    async fetchBinary(url) {
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Petdex 下载失败 (${response.status})`);
+      }
+      return Buffer.from(await response.arrayBuffer());
+    },
   });
   const chatStateService = createChatStateService({ userDataPath });
   const secretService = createSecretService({ userDataPath, safeStorage });
@@ -87,11 +104,11 @@ async function main() {
   let petHiddenForRecording = false;
   const recordingControlWindowState: { current?: BrowserWindow } = {};
 
-  function showPetEmotion(emotion: "attentive" | "thinking" | "happy" | "sleepy", bubbleText?: string, durationMs?: number) {
+  function showPetEmotion(emotion: PetEmotion, bubbleText?: string, durationMs?: number) {
     petWindow.webContents.send(ipcChannels.petEmotion, { emotion, bubbleText, durationMs });
   }
 
-  function showPetBubble(message: string, emotion: "attentive" | "thinking" | "happy" | "sleepy" = "happy") {
+  function showPetBubble(message: string, emotion: PetEmotion = "happy") {
     petWindow.webContents.send(ipcChannels.petBubble, message);
     showPetEmotion(emotion, message);
   }
@@ -150,7 +167,7 @@ async function main() {
       openTranslator(selectedText, true);
     } catch (error) {
       const message = error instanceof Error ? error.message : "读取选中文字失败";
-      showPetBubble(message, "thinking");
+      showPetBubble(message, "failed");
       openTranslator();
     }
   }
@@ -195,7 +212,7 @@ async function main() {
         petHiddenForRecording = false;
       }
       const message = error instanceof Error ? error.message : "录屏启动失败";
-      showPetBubble(message, "thinking");
+      showPetBubble(message, "failed");
       throw error;
     }
   }
@@ -245,7 +262,7 @@ async function main() {
 
     if (failed.length > 0) {
       console.warn("Some shortcuts failed to register:", failed);
-      showPetBubble(`有 ${failed.length} 个快捷键注册失败，可能被其它软件占用`, "thinking");
+      showPetBubble(`有 ${failed.length} 个快捷键注册失败，可能被其它软件占用`, "failed");
     }
   }
 
@@ -358,4 +375,3 @@ main().catch((error) => {
   console.error(error);
   app.quit();
 });
-

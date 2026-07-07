@@ -8,7 +8,7 @@ export type Annotation =
   | { type: "arrow"; from: Point; to: Point; color: string }
   | { type: "pen"; points: Point[]; color: string; size: number }
   | { type: "text"; x: number; y: number; text: string; color: string; fontSize?: number }
-  | { type: "mosaic"; rect: { x: number; y: number; w: number; h: number }; size: number };
+  | { type: "mosaic"; points: Point[]; size: number; blockSize: number };
 
 export interface ScreenshotEditorState {
   annotations: Annotation[];

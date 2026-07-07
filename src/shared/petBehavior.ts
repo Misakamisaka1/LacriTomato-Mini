@@ -1,6 +1,8 @@
-export type PetEmotion = "attentive" | "thinking" | "happy" | "sleepy";
+export type PetLegacyEmotion = "attentive" | "thinking" | "happy" | "sleepy";
+export type PetdexEmotion = "waving" | "jumping" | "failed" | "waiting" | "running" | "review";
+export type PetEmotion = PetLegacyEmotion | PetdexEmotion;
 export type PetMode = "idle" | "wandering" | PetEmotion;
-export type PetAnimationName = "idle" | "walkRight" | "walkLeft" | PetEmotion;
+export type PetAnimationName = "idle" | "runRight" | "runLeft" | PetdexEmotion | "walkRight" | "walkLeft" | PetLegacyEmotion;
 
 export interface PetBubbleAction {
   type: "chat.replyToTopic";
@@ -132,7 +134,22 @@ function idleAfterPause(state: PetBehaviorState, now: number): PetBehaviorState 
 }
 
 function animationForDirection(direction: 1 | -1): PetAnimationName {
-  return direction > 0 ? "walkRight" : "walkLeft";
+  return direction > 0 ? "runRight" : "runLeft";
+}
+
+function animationForEmotion(emotion: PetEmotion): PetAnimationName {
+  switch (emotion) {
+    case "attentive":
+      return "waiting";
+    case "thinking":
+      return "running";
+    case "happy":
+      return "jumping";
+    case "sleepy":
+      return "idle";
+    default:
+      return emotion;
+  }
 }
 
 export function reducePetBehavior(state: PetBehaviorState, event: PetBehaviorEvent): PetBehaviorState {
@@ -141,7 +158,7 @@ export function reducePetBehavior(state: PetBehaviorState, event: PetBehaviorEve
     return {
       ...clearWander(withoutMovement(state)),
       mode: event.emotion,
-      animation: event.emotion,
+      animation: animationForEmotion(event.emotion),
       bubble: event.bubbleText
         ? state.bubble?.text === event.bubbleText
           ? { ...state.bubble, emotion: event.emotion }
@@ -157,7 +174,7 @@ export function reducePetBehavior(state: PetBehaviorState, event: PetBehaviorEve
     return {
       ...clearWander(withoutMovement(state)),
       mode: emotion,
-      animation: emotion,
+      animation: animationForEmotion(emotion),
       bubble: { text: event.text, emotion, actionLabel: event.actionLabel, action: event.action },
       bubbleUntilMs: event.now + (event.durationMs ?? defaultBubbleDurationMs),
       emotionUntilMs: event.now + (event.durationMs ?? defaultEmotionDurationMs),
@@ -204,4 +221,3 @@ export function reducePetBehavior(state: PetBehaviorState, event: PetBehaviorEve
     animation: "idle",
   };
 }
-

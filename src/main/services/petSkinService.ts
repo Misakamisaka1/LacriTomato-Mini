@@ -1,7 +1,7 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { basename, dirname, extname, isAbsolute, join, normalize, relative, resolve } from "node:path";
 import type { AppConfig } from "../../shared/configSchema.js";
-import type { PetAnimationDefinition, PetManifest, PetSkinLoadResult } from "../../shared/petManifest.js";
+import type { ManagedPetSkin, ManagedPetSkinResult, PetAnimationDefinition, PetdexCatalogPet, PetdexCatalogResult, PetManifest, PetSkinLoadResult } from "../../shared/petManifest.js";
 
 export interface ImageSize {
   width: number;
@@ -15,6 +15,10 @@ export interface PetSkinServiceOptions {
   readImageSize(path: string): ImageSize;
   makeFileUrl(path: string): string;
   openExternal(url: string): Promise<unknown> | unknown;
+  petdexLibraryPath?: string;
+  petdexManifestUrl?: string;
+  fetchJson?: (url: string) => Promise<unknown>;
+  fetchBinary?: (url: string) => Promise<Buffer | Uint8Array | ArrayBuffer>;
 }
 
 export interface PetSkinService {
@@ -22,6 +26,11 @@ export interface PetSkinService {
   importSkinFolder(folderPath: string): PetSkinLoadResult;
   resetSkin(): PetSkinLoadResult;
   openPetdex(): Promise<void>;
+  listPetdexPets(): Promise<PetdexCatalogResult>;
+  installPetdexSkin(slug: string): Promise<PetSkinLoadResult>;
+  listManagedSkins(): ManagedPetSkinResult;
+  useManagedSkin(slug: string): PetSkinLoadResult;
+  deleteManagedSkin(slug: string): ManagedPetSkinResult;
 }
 
 function readUInt24LE(buffer: Buffer, offset: number) {
@@ -98,21 +107,23 @@ export function readSpritesheetImageSize(path: string): ImageSize {
 const defaultFrameWidth = 192;
 const defaultFrameHeight = 208;
 const defaultFps = 6;
-const petdexRows = ["idle", "wave", "run", "failed", "review", "jump", "extra1", "extra2", "extra3"];
-const petdexVisibleFrameCounts: Record<string, number> = {
+const defaultPetdexManifestUrl = "https://petdex.dev/api/manifest";
+const petdexRows = ["idle", "runRight", "runLeft", "waving", "jumping", "failed", "waiting", "running", "review"] as const;
+type PetdexRowName = typeof petdexRows[number];
+const petdexVisibleFrameCounts: Record<PetdexRowName, number> = {
   idle: 6,
-  wave: 8,
-  run: 8,
-  failed: 4,
-  review: 5,
-  jump: 8,
-  extra1: 6,
-  extra2: 6,
-  extra3: 6,
+  runRight: 8,
+  runLeft: 8,
+  waving: 4,
+  jumping: 5,
+  failed: 8,
+  waiting: 6,
+  running: 6,
+  review: 6,
 };
 
 function readJson(path: string): unknown {
-  return JSON.parse(readFileSync(path, "utf8"));
+  return JSON.parse(readFileSync(path, "utf8").replace(/^\uFEFF/, ""));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -132,6 +143,64 @@ function readString(record: Record<string, unknown>, keys: string[], fallback: s
 function readPositiveInt(value: unknown, fallback: number) {
   const parsed = Math.floor(Number(value));
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
+
+function readPetdexHeatValue(value: unknown) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return Math.max(0, Math.round(value));
+  }
+
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const match = value.trim().match(/^([0-9]+(?:[.,][0-9]+)?)\s*([kKmM])?/);
+  if (!match) {
+    return undefined;
+  }
+
+  const amount = Number(match[1].replace(",", "."));
+  if (!Number.isFinite(amount)) {
+    return undefined;
+  }
+
+  const suffix = match[2]?.toLowerCase();
+  const multiplier = suffix === "m" ? 1_000_000 : suffix === "k" ? 1_000 : 1;
+  return Math.max(0, Math.round(amount * multiplier));
+}
+
+function readPetdexHeat(record: Record<string, unknown>) {
+  const keys = ["heat", "popularity", "installCount", "installs", "downloadCount", "downloads", "likeCount", "likes"];
+  for (const key of keys) {
+    const heat = readPetdexHeatValue(record[key]);
+    if (heat !== undefined) {
+      return heat;
+    }
+  }
+
+  return 0;
+}
+
+function formatCompactHeat(value: number, divisor: number, suffix: string) {
+  const compact = value / divisor;
+  const formatted = compact >= 10 ? Math.round(compact).toString() : compact.toFixed(1).replace(/\.0$/, "");
+  return `${formatted}${suffix}`;
+}
+
+function formatPetdexHeat(heat: number) {
+  if (heat <= 0) {
+    return "热度未知";
+  }
+
+  if (heat >= 1_000_000) {
+    return `${formatCompactHeat(heat, 1_000_000, "M")} 热度`;
+  }
+
+  if (heat >= 1_000) {
+    return `${formatCompactHeat(heat, 1_000, "K")} 热度`;
+  }
+
+  return `${heat} 热度`;
 }
 
 function assertSafeSpritesheetPath(folderPath: string, spritesheetPath: string) {
@@ -196,7 +265,7 @@ function normalizeAnimation(value: unknown, frameCount: number): PetAnimationDef
   };
 }
 
-function visibleFrameCountForRow(name: string, columns: number) {
+function visibleFrameCountForRow(name: PetdexRowName, columns: number) {
   return columns === 8 ? petdexVisibleFrameCounts[name] ?? columns : columns;
 }
 
@@ -207,24 +276,62 @@ function rowFrames(row: number, columns: number, frameCount: number, visibleCoun
 }
 
 function synthesizePetdexAnimations(columns: number, frameCount: number): Record<string, PetAnimationDefinition> {
-  const rows = new Map(petdexRows.map((name, index) => [
+  const rows = new Map<PetdexRowName, number[]>(petdexRows.map((name, index) => [
     name,
     rowFrames(index, columns, frameCount, visibleFrameCountForRow(name, columns)),
   ]));
   const idle = rows.get("idle")?.length ? rows.get("idle") as number[] : [0];
-  const run = rows.get("run")?.length ? rows.get("run") as number[] : idle;
-  const wave = rows.get("wave")?.length ? rows.get("wave") as number[] : idle;
-  const review = rows.get("review")?.length ? rows.get("review") as number[] : idle;
-  const jump = rows.get("jump")?.length ? rows.get("jump") as number[] : wave;
+  const getRow = (name: PetdexRowName, fallback = idle) => rows.get(name)?.length ? rows.get(name) as number[] : fallback;
+  const runRight = getRow("runRight");
+  const runLeft = getRow("runLeft", runRight);
+  const waving = getRow("waving");
+  const jumping = getRow("jumping", waving);
+  const failed = getRow("failed", idle);
+  const waiting = getRow("waiting", idle);
+  const running = getRow("running", waiting);
+  const review = getRow("review", running);
+
+  return withLegacyAnimationAliases({
+    idle: { frames: idle, fps: defaultFps, loop: true },
+    runRight: { frames: runRight, fps: 9, loop: true },
+    runLeft: { frames: runLeft, fps: 9, loop: true },
+    waving: { frames: waving, fps: 7, loop: false },
+    jumping: { frames: jumping, fps: 7, loop: false },
+    failed: { frames: failed, fps: defaultFps, loop: false },
+    waiting: { frames: waiting, fps: defaultFps, loop: true },
+    running: { frames: running, fps: defaultFps, loop: true },
+    review: { frames: review, fps: defaultFps, loop: true },
+  });
+}
+
+function withLegacyAnimationAliases(animations: Record<string, PetAnimationDefinition>): Record<string, PetAnimationDefinition> {
+  const idle = animations.idle ?? { frames: [0], fps: defaultFps, loop: true };
+  const runRight = animations.runRight ?? animations.walkRight ?? idle;
+  const runLeft = animations.runLeft ?? animations.walkLeft ?? { ...runRight, frames: [...runRight.frames].reverse() };
+  const waving = animations.waving ?? animations.attentive ?? idle;
+  const jumping = animations.jumping ?? animations.happy ?? waving;
+  const failed = animations.failed ?? idle;
+  const waiting = animations.waiting ?? animations.attentive ?? idle;
+  const running = animations.running ?? animations.thinking ?? animations.review ?? waiting;
+  const review = animations.review ?? animations.thinking ?? running;
 
   return {
-    idle: { frames: idle, fps: defaultFps, loop: true },
-    walkRight: { frames: run, fps: defaultFps, loop: true },
-    walkLeft: { frames: [...run].reverse(), fps: defaultFps, loop: true },
-    attentive: { frames: wave, fps: defaultFps, loop: false },
-    happy: { frames: jump, fps: defaultFps, loop: false },
-    thinking: { frames: review, fps: defaultFps, loop: true },
-    sleepy: { frames: idle, fps: 4, loop: true },
+    ...animations,
+    idle,
+    runRight,
+    runLeft,
+    waving,
+    jumping,
+    failed,
+    waiting,
+    running,
+    review,
+    walkRight: runRight,
+    walkLeft: runLeft,
+    attentive: waiting,
+    happy: jumping,
+    thinking: running,
+    sleepy: animations.sleepy ?? { frames: idle.frames, fps: 4, loop: true },
   };
 }
 
@@ -267,10 +374,10 @@ function normalizeManifest(
     }
   }
 
-  const normalizedAnimations = {
+  const normalizedAnimations = withLegacyAnimationAliases({
     ...synthesizePetdexAnimations(columns, frameCount),
     ...animations,
-  };
+  });
 
   if (!normalizedAnimations.idle.frames.length) {
     throw new Error("皮肤动画信息不完整");
@@ -292,6 +399,170 @@ function normalizeManifest(
   };
 }
 
+interface PetdexInstallCandidate extends PetdexCatalogPet {
+  spritesheetUrl: string;
+  petJsonUrl: string;
+}
+
+interface PetdexManifestData extends PetdexCatalogResult {
+  installablePets: PetdexInstallCandidate[];
+}
+
+function sanitizePetdexSlug(slug: string) {
+  const normalized = slug.trim().toLowerCase();
+  if (!/^[a-z0-9][a-z0-9-]{0,80}$/.test(normalized)) {
+    throw new Error("Petdex slug 不安全");
+  }
+
+  return normalized;
+}
+
+function readTrustedPetdexUrl(value: unknown) {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error("Petdex 下载地址缺失");
+  }
+
+  let url: URL;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    throw new Error("Petdex 下载地址不正确");
+  }
+
+  const hostname = url.hostname.toLowerCase();
+  if (url.protocol !== "https:" || (hostname !== "petdex.dev" && hostname !== "assets.petdex.dev")) {
+    throw new Error("Petdex 下载地址不安全");
+  }
+
+  return url.toString();
+}
+
+function readPetdexSpriteFileName(spritesheetUrl: string) {
+  const extension = extname(new URL(spritesheetUrl).pathname).toLowerCase();
+  if (extension !== ".webp" && extension !== ".png") {
+    throw new Error("未找到 spritesheet.webp 或 spritesheet.png");
+  }
+
+  return extension === ".png" ? "spritesheet.png" : "spritesheet.webp";
+}
+
+function normalizePetdexCandidate(value: unknown): PetdexInstallCandidate | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+
+  try {
+    const slug = sanitizePetdexSlug(readString(value, ["slug"], ""));
+    const displayName = readString(value, ["displayName", "name", "title"], slug);
+    const spritesheetUrl = readTrustedPetdexUrl(value.spritesheetUrl);
+    const heat = readPetdexHeat(value);
+    return {
+      slug,
+      displayName,
+      kind: readString(value, ["kind", "type"], ""),
+      submittedBy: readString(value, ["submittedBy", "author", "creator"], ""),
+      previewUrl: spritesheetUrl,
+      heat,
+      heatLabel: formatPetdexHeat(heat),
+      spritesheetUrl,
+      petJsonUrl: readTrustedPetdexUrl(value.petJsonUrl),
+    };
+  } catch {
+    return undefined;
+  }
+}
+
+function normalizePetdexManifest(raw: unknown): PetdexManifestData {
+  if (!isRecord(raw) || !Array.isArray(raw.pets)) {
+    throw new Error("Petdex 清单格式不正确");
+  }
+
+  const installablePets = raw.pets
+    .flatMap((item, index): Array<{ pet: PetdexInstallCandidate; index: number }> => {
+      const pet = normalizePetdexCandidate(item);
+      return pet ? [{ pet, index }] : [];
+    })
+    .sort((left, right) => right.pet.heat - left.pet.heat || left.index - right.index)
+    .map(({ pet }) => pet);
+
+  return {
+    generatedAt: readString(raw, ["generatedAt"], ""),
+    total: readPositiveInt(raw.total, installablePets.length),
+    pets: installablePets.map(({ slug, displayName, kind, submittedBy, previewUrl, heat, heatLabel }) => ({
+      slug,
+      displayName,
+      kind,
+      submittedBy,
+      previewUrl,
+      heat,
+      heatLabel,
+    })),
+    installablePets,
+  };
+}
+
+function requirePetdexLibraryPath(options: PetSkinServiceOptions) {
+  if (!options.petdexLibraryPath?.trim()) {
+    throw new Error("Petdex 下载目录未配置");
+  }
+
+  return options.petdexLibraryPath;
+}
+
+function requireFetchJson(options: PetSkinServiceOptions) {
+  if (!options.fetchJson) {
+    throw new Error("Petdex 网络服务未配置");
+  }
+
+  return options.fetchJson;
+}
+
+function requireFetchBinary(options: PetSkinServiceOptions) {
+  if (!options.fetchBinary) {
+    throw new Error("Petdex 网络服务未配置");
+  }
+
+  return options.fetchBinary;
+}
+
+function isSameResolvedPath(left: string, right: string) {
+  return resolve(left) === resolve(right);
+}
+
+function resolveManagedPetSkinFolder(options: PetSkinServiceOptions, slug: string) {
+  const libraryPath = resolve(requirePetdexLibraryPath(options));
+  const folderPath = resolve(libraryPath, sanitizePetdexSlug(slug));
+  const relativePath = relative(libraryPath, folderPath);
+  if (relativePath.startsWith("..") || isAbsolute(relativePath)) {
+    throw new Error("Petdex slug 不安全");
+  }
+
+  return folderPath;
+}
+
+function toBuffer(value: Buffer | Uint8Array | ArrayBuffer) {
+  if (Buffer.isBuffer(value)) {
+    return value;
+  }
+
+  if (value instanceof ArrayBuffer) {
+    return Buffer.from(value);
+  }
+
+  return Buffer.from(value.buffer, value.byteOffset, value.byteLength);
+}
+
+function buildDownloadedPetManifest(raw: unknown, pet: PetdexInstallCandidate, spritesheetFileName: string) {
+  const manifest = isRecord(raw) ? { ...raw } : {};
+  return {
+    ...manifest,
+    id: readString(manifest, ["id", "slug"], pet.slug),
+    slug: pet.slug,
+    displayName: readString(manifest, ["displayName", "name", "title"], pet.displayName),
+    name: readString(manifest, ["name", "displayName", "title"], pet.displayName),
+    spritesheetPath: spritesheetFileName,
+  };
+}
 export function createPetSkinService(options: PetSkinServiceOptions): PetSkinService {
   function loadBundled(warning?: string): PetSkinLoadResult {
     const raw = readJson(options.bundledManifestPath);
@@ -336,6 +607,83 @@ export function createPetSkinService(options: PetSkinServiceOptions): PetSkinSer
       return loadBundled(message);
     }
   }
+  async function loadPetdexManifest() {
+    const fetchJson = requireFetchJson(options);
+    return normalizePetdexManifest(await fetchJson(options.petdexManifestUrl ?? defaultPetdexManifestUrl));
+  }
+
+  function listManagedSkins(): ManagedPetSkinResult {
+    const libraryPath = resolve(requirePetdexLibraryPath(options));
+    if (!existsSync(libraryPath)) {
+      return { skins: [] };
+    }
+
+    const currentSourcePath = options.getConfig().pet.skinSourcePath.trim();
+    const skins = readdirSync(libraryPath, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .flatMap((entry): ManagedPetSkin[] => {
+        let slug: string;
+        try {
+          slug = sanitizePetdexSlug(entry.name);
+        } catch {
+          return [];
+        }
+
+        const folderPath = join(libraryPath, slug);
+        try {
+          const result = loadFolder(folderPath);
+          return [{
+            slug,
+            displayName: result.skin.manifest.displayName,
+            sourcePath: folderPath,
+            previewUrl: result.skin.spritesheetUrl,
+            current: Boolean(currentSourcePath) && isSameResolvedPath(currentSourcePath, folderPath),
+          }];
+        } catch {
+          return [];
+        }
+      })
+      .sort((left, right) => left.displayName.localeCompare(right.displayName, "zh-Hans-CN") || left.slug.localeCompare(right.slug));
+
+    return { skins };
+  }
+
+  function useManagedSkin(slug: string) {
+    return loadFolder(resolveManagedPetSkinFolder(options, slug));
+  }
+
+  function deleteManagedSkin(slug: string) {
+    const folderPath = resolveManagedPetSkinFolder(options, slug);
+    const currentSourcePath = options.getConfig().pet.skinSourcePath.trim();
+    if (currentSourcePath && isSameResolvedPath(currentSourcePath, folderPath)) {
+      throw new Error("请先切换到其他皮肤再删除当前皮肤");
+    }
+
+    rmSync(folderPath, { recursive: true, force: true });
+    return listManagedSkins();
+  }
+  async function installPetdexSkin(slug: string) {
+    const safeSlug = sanitizePetdexSlug(slug);
+    const manifest = await loadPetdexManifest();
+    const pet = manifest.installablePets.find((item) => item.slug === safeSlug);
+    if (!pet) {
+      throw new Error("未找到 Petdex 皮肤");
+    }
+
+    const fetchJson = requireFetchJson(options);
+    const fetchBinary = requireFetchBinary(options);
+    const libraryPath = requirePetdexLibraryPath(options);
+    const folderPath = join(libraryPath, safeSlug);
+    const spritesheetFileName = readPetdexSpriteFileName(pet.spritesheetUrl);
+    const petJson = await fetchJson(pet.petJsonUrl);
+    const spritesheet = toBuffer(await fetchBinary(pet.spritesheetUrl));
+
+    mkdirSync(folderPath, { recursive: true });
+    writeFileSync(join(folderPath, spritesheetFileName), spritesheet);
+    writeFileSync(join(folderPath, "pet.json"), JSON.stringify(buildDownloadedPetManifest(petJson, pet, spritesheetFileName), null, 2), "utf8");
+
+    return withFallback(() => loadFolder(folderPath));
+  }
 
   return {
     getCurrentSkin() {
@@ -351,5 +699,17 @@ export function createPetSkinService(options: PetSkinServiceOptions): PetSkinSer
     async openPetdex() {
       await options.openExternal("https://petdex.dev/");
     },
+    async listPetdexPets() {
+      const manifest = await loadPetdexManifest();
+      return {
+        generatedAt: manifest.generatedAt,
+        total: manifest.total,
+        pets: manifest.pets,
+      };
+    },
+    installPetdexSkin,
+    listManagedSkins,
+    useManagedSkin,
+    deleteManagedSkin,
   };
 }

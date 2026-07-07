@@ -324,7 +324,10 @@
 
   .settings-grid--two,
   .settings-inline-grid,
-  .settings-path-row {
+  .settings-path-row,
+  .settings-petdex-item,
+  .settings-managed-skin-item,
+  .settings-petdex-header {
     grid-template-columns: minmax(0, 1fr);
   }
 
@@ -404,4 +407,132 @@
   overflow-wrap: anywhere;
   color: #d7deeb;
   font-size: 13px;
+}
+.settings-petdex-panel,
+.settings-managed-skin-panel {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  background: #151820;
+  border: 1px solid #303541;
+  border-radius: 8px;
+}
+
+.settings-petdex-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.settings-petdex-search {
+  display: grid;
+  gap: 6px;
+}
+
+.settings-petdex-list,
+.settings-managed-skin-list {
+  display: grid;
+  gap: 8px;
+  min-height: 34px;
+}
+
+.settings-petdex-item,
+.settings-managed-skin-item {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 74px;
+  padding: 9px 10px;
+  background: #11141a;
+  border: 1px solid #303541;
+  border-radius: 8px;
+}
+
+.settings-petdex-info {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.settings-petdex-item strong,
+.settings-petdex-item span,
+.settings-managed-skin-item strong,
+.settings-managed-skin-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-petdex-item span,
+.settings-managed-skin-item span {
+  color: #aeb6c5;
+  font-size: 12px;
+}
+
+.settings-managed-skin-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: max-content;
+}
+
+.settings-petdex-item .settings-secondary,
+.settings-managed-skin-actions .settings-secondary {
+  min-width: 76px;
+}
+
+.settings-current-badge {
+  width: fit-content;
+  max-width: 100%;
+  padding: 2px 8px;
+  color: #62d68a;
+  background: rgba(98, 214, 138, 0.12);
+  border: 1px solid rgba(98, 214, 138, 0.34);
+  border-radius: 999px;
+}
+
+.settings-petdex-preview {
+  width: 56px;
+  height: 56px;
+  background-color: #0d1017;
+  background-repeat: no-repeat;
+  background-position: left top;
+  background-size: 800% 900%;
+  border: 1px solid #303541;
+  border-radius: 8px;
+  image-rendering: pixelated;
+}
+
+.settings-petdex-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  color: #aeb6c5;
+  font-size: 12px;
+}
+
+@media (max-width: 760px) {
+  .settings-petdex-item,
+  .settings-managed-skin-item {
+    grid-template-columns: 56px minmax(0, 1fr);
+  }
+
+  .settings-petdex-item .settings-secondary,
+  .settings-managed-skin-actions {
+    grid-column: 1 / -1;
+    justify-self: start;
+  }
+
+  .settings-managed-skin-actions {
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+
+  .settings-petdex-pagination {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
 }

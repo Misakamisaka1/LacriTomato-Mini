@@ -36,7 +36,7 @@ const petMenuGap = 8;
 const petBubbleWidth = 280;
 const petBubbleHeight = 86;
 const petBubbleExtraInset = 16;
-const petEmotions: PetEmotion[] = ["attentive", "thinking", "happy", "sleepy"];
+const petEmotions: PetEmotion[] = ["attentive", "thinking", "happy", "sleepy", "waving", "jumping", "failed", "waiting", "running", "review"];
 const contextMenuSignalDedupeMs = 250;
 
 type PetMenuPlacement = "top" | "left" | "right";
@@ -81,21 +81,30 @@ function appendLocalMenuItems(pluginItems: PluginMenuItem[]) {
   ];
 }
 
+const animationAliases: Partial<Record<PetAnimationName, string>> = {
+  walkRight: "runRight",
+  walkLeft: "runLeft",
+  attentive: "waiting",
+  happy: "jumping",
+  thinking: "running",
+  sleepy: "idle",
+};
+
 function getAnimation(activeManifest: PetManifest, name: PetAnimationName) {
-  return activeManifest.animations[name] ?? activeManifest.animations.idle ?? { frames: [0], fps: 6, loop: true };
+  const alias = animationAliases[name];
+  return activeManifest.animations[name]
+    ?? (alias ? activeManifest.animations[alias] : undefined)
+    ?? activeManifest.animations.idle
+    ?? { frames: [0], fps: 6, loop: true };
 }
 
 function isPetEmotion(value: unknown): value is PetEmotion {
   return typeof value === "string" && petEmotions.includes(value as PetEmotion);
 }
 
-function isWalkingAnimation(name: PetAnimationName) {
-  return name === "walkLeft" || name === "walkRight";
-}
-
 function emotionForBubble(message: string): PetEmotion {
   if (["失败", "错误", "没有", "占用", "未就绪"].some((keyword) => message.includes(keyword))) {
-    return "thinking";
+    return "failed";
   }
 
   return "happy";
@@ -196,7 +205,7 @@ export function PetApp() {
   const [frame, setFrame] = useState(0);
   const [hovering, setHovering] = useState(false);
   const [dragging, setDragging] = useState(false);
-  const [dragAnimation, setDragAnimation] = useState<"walkLeft" | "walkRight" | undefined>();
+  const [dragAnimation, setDragAnimation] = useState<"runLeft" | "runRight" | undefined>();
   const [bubbleSize, setBubbleSize] = useState({ height: 0, width: 0 });
   const dragPointRef = useRef<DragPoint | undefined>(undefined);
   const bubbleRef = useRef<HTMLDivElement>(null);
@@ -204,8 +213,8 @@ export function PetApp() {
   const menuOpeningRef = useRef(false);
   const lastRendererContextMenuAtRef = useRef(Number.NEGATIVE_INFINITY);
   const hoverActive = !menuOpen && !menuOpening && !dragging && hovering;
-  const hoverAnimation = hoverActive ? "happy" : undefined;
-  const displayAnimation = menuOpen || menuOpening ? "idle" : dragAnimation ?? hoverAnimation ?? (isWalkingAnimation(behavior.animation) ? "idle" : behavior.animation);
+  const hoverAnimation = hoverActive ? "jumping" : undefined;
+  const displayAnimation = menuOpen || menuOpening ? "idle" : dragAnimation ?? hoverAnimation ?? behavior.animation;
   const currentAnimation = useMemo(() => getAnimation(activeManifest, displayAnimation), [activeManifest, displayAnimation]);
   const interactionPaused = menuOpen || menuOpening || hoverActive || dragging;
 
@@ -247,7 +256,7 @@ export function PetApp() {
     });
 
     if (result.warning) {
-      applyBubble({ text: result.warning, emotion: "thinking", durationMs: 2600 });
+      applyBubble({ text: result.warning, emotion: "failed", durationMs: 2600 });
     }
   }, [applyBubble]);
   const loadMenuItems = useCallback(async () => {
@@ -500,7 +509,7 @@ export function PetApp() {
       applyEmotion("happy", label ? `${label}已打开` : "完成啦", 1400);
     } catch (error) {
       const message = error instanceof Error ? error.message : "操作失败";
-      applyEmotion("thinking", message, 2600);
+      applyEmotion("failed", message, 2600);
     } finally {
       setHovering(false);
       closeMenu();
@@ -535,9 +544,9 @@ export function PetApp() {
 
     dragPointRef.current = nextPoint;
     if (deltaX > 0) {
-      setDragAnimation("walkRight");
+      setDragAnimation("runRight");
     } else if (deltaX < 0) {
-      setDragAnimation("walkLeft");
+      setDragAnimation("runLeft");
     }
     void window.petdex?.pet?.moveBy(deltaX, deltaY);
   }
@@ -651,6 +660,3 @@ export function PetApp() {
     </main>
   );
 }
-
-
-

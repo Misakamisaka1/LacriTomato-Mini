@@ -418,6 +418,24 @@ describe("ScreenshotOverlay", () => {
     expect(await screen.findByLabelText("截图标注层")).toBeTruthy();
   });
 
+  it("draws mosaic annotations as brush strokes instead of selection boxes", async () => {
+    const { container } = render(<ScreenshotOverlay />);
+    await lockSelection(container);
+    const drawingSurface = await screen.findByLabelText("截图绘制层");
+
+    fireEvent.click(screen.getByRole("button", { name: "马赛克标注" }));
+    fireEvent.mouseDown(drawingSurface, { clientX: 12, clientY: 14 });
+    fireEvent.mouseMove(drawingSurface, { clientX: 42, clientY: 54 });
+    fireEvent.mouseUp(drawingSurface, { clientX: 42, clientY: 54 });
+
+    const annotationLayer = await screen.findByLabelText("截图标注层");
+    const mosaicStroke = annotationLayer.querySelector(".screenshot-mosaic-stroke");
+    expect(mosaicStroke).toBeTruthy();
+    expect(mosaicStroke?.tagName.toLowerCase()).toBe("path");
+    expect(mosaicStroke?.getAttribute("d")).toContain("L");
+    expect(annotationLayer.querySelector("foreignObject")).toBeNull();
+  });
+
   it("renders arrow annotations with an arrow head", async () => {
     const { container } = render(<ScreenshotOverlay />);
     await lockSelection(container);

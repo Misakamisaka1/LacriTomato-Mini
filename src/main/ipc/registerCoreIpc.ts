@@ -73,6 +73,26 @@ function readDialogDefaultPath(payload: unknown) {
   return typeof value === "string" && value.trim() ? value : undefined;
 }
 
+
+function readPetSkinSlug(payload: unknown, fallbackMessage: string) {
+  const value = payload && typeof payload === "object" && "slug" in payload
+    ? (payload as { slug?: unknown }).slug
+    : payload;
+
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error(fallbackMessage);
+  }
+
+  return value;
+}
+
+function readPetdexSlug(payload: unknown) {
+  return readPetSkinSlug(payload, "请选择要下载的 Petdex 皮肤");
+}
+
+function readManagedPetSkinSlug(payload: unknown) {
+  return readPetSkinSlug(payload, "请选择要操作的皮肤");
+}
 function readContentLength(value: unknown) {
   const length = Math.ceil(Number(value));
   return Number.isFinite(length) && length > 0 ? length : undefined;
@@ -115,7 +135,7 @@ function choosePetMenuPlacement(window: BrowserWindow, menuWidth: number): PetMe
   return "top";
 }
 
-const petEmotions: PetEmotion[] = ["attentive", "thinking", "happy", "sleepy"];
+const petEmotions: PetEmotion[] = ["attentive", "thinking", "happy", "sleepy", "waving", "jumping", "failed", "waiting", "running", "review"];
 
 function isPetEmotion(value: unknown): value is PetEmotion {
   return typeof value === "string" && petEmotions.includes(value as PetEmotion);
@@ -400,6 +420,29 @@ export function registerCoreIpc(deps: CoreIpcDependencies): void {
   ipcMain.handle(ipcChannels.petSkinOpenPetdex, async () => {
     await ensurePetSkinService(deps).openPetdex();
   });
+  ipcMain.handle(ipcChannels.petSkinListPetdex, async () => ensurePetSkinService(deps).listPetdexPets());
+  ipcMain.handle(ipcChannels.petSkinInstallPetdex, async (_event, payload: unknown) => {
+    const result = await ensurePetSkinService(deps).installPetdexSkin(readPetdexSlug(payload));
+    if (!result.fallbackUsed && result.skin.sourcePath) {
+      const nextConfig = deps.configService.setConfig({ pet: { skinSourcePath: result.skin.sourcePath } });
+      deps.onConfigChanged?.(nextConfig);
+    }
+    broadcastPetSkinChanged(result);
+    return result;
+  });
+  ipcMain.handle(ipcChannels.petSkinListManaged, async () => ensurePetSkinService(deps).listManagedSkins());
+  ipcMain.handle(ipcChannels.petSkinUseManaged, async (_event, payload: unknown) => {
+    const result = ensurePetSkinService(deps).useManagedSkin(readManagedPetSkinSlug(payload));
+    if (!result.fallbackUsed && result.skin.sourcePath) {
+      const nextConfig = deps.configService.setConfig({ pet: { skinSourcePath: result.skin.sourcePath } });
+      deps.onConfigChanged?.(nextConfig);
+    }
+    broadcastPetSkinChanged(result);
+    return result;
+  });
+  ipcMain.handle(ipcChannels.petSkinDeleteManaged, async (_event, payload: unknown) => (
+    ensurePetSkinService(deps).deleteManagedSkin(readManagedPetSkinSlug(payload))
+  ));
   ipcMain.handle(ipcChannels.secureConfigSetApiKey, async (_event, apiKey: string) => {
     await deps.setApiKey?.(apiKey);
   });
@@ -703,8 +746,3 @@ export function registerCoreIpc(deps: CoreIpcDependencies): void {
   ipcMain.handle(ipcChannels.pluginListContributions, () => deps.pluginRegistry.getContributions());
   ipcMain.handle(ipcChannels.pluginInvokeAction, (_event, action: string) => deps.invokePluginAction(action));
 }
-
-
-
-
-

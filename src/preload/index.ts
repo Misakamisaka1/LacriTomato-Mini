@@ -60,6 +60,11 @@ const api: PetdexApi = {
     importSkinFolder: () => ipcRenderer.invoke(ipcChannels.petSkinImportFolder),
     resetSkin: () => ipcRenderer.invoke(ipcChannels.petSkinReset),
     openPetdex: () => ipcRenderer.invoke(ipcChannels.petSkinOpenPetdex),
+    listPetdexPets: () => ipcRenderer.invoke(ipcChannels.petSkinListPetdex),
+    installPetdexSkin: (slug) => ipcRenderer.invoke(ipcChannels.petSkinInstallPetdex, { slug }),
+    listManagedSkins: () => ipcRenderer.invoke(ipcChannels.petSkinListManaged),
+    useManagedSkin: (slug) => ipcRenderer.invoke(ipcChannels.petSkinUseManaged, { slug }),
+    deleteManagedSkin: (slug) => ipcRenderer.invoke(ipcChannels.petSkinDeleteManaged, { slug }),
     onSkinChanged: (callback) => {
       const listener = (_event: IpcRendererEvent, result: PetSkinLoadResult) => callback(result);
       ipcRenderer.on(ipcChannels.petSkinChanged, listener);
