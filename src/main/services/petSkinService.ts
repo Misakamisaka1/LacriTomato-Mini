@@ -99,6 +99,17 @@ const defaultFrameWidth = 192;
 const defaultFrameHeight = 208;
 const defaultFps = 6;
 const petdexRows = ["idle", "wave", "run", "failed", "review", "jump", "extra1", "extra2", "extra3"];
+const petdexVisibleFrameCounts: Record<string, number> = {
+  idle: 6,
+  wave: 8,
+  run: 8,
+  failed: 4,
+  review: 5,
+  jump: 8,
+  extra1: 6,
+  extra2: 6,
+  extra3: 6,
+};
 
 function readJson(path: string): unknown {
   return JSON.parse(readFileSync(path, "utf8"));
@@ -185,13 +196,21 @@ function normalizeAnimation(value: unknown, frameCount: number): PetAnimationDef
   };
 }
 
-function rowFrames(row: number, columns: number, frameCount: number) {
+function visibleFrameCountForRow(name: string, columns: number) {
+  return columns === 8 ? petdexVisibleFrameCounts[name] ?? columns : columns;
+}
+
+function rowFrames(row: number, columns: number, frameCount: number, visibleCount: number) {
   const start = row * columns;
-  return Array.from({ length: columns }, (_item, index) => start + index).filter((frame) => frame < frameCount);
+  return Array.from({ length: Math.min(columns, visibleCount) }, (_item, index) => start + index)
+    .filter((frame) => frame < frameCount);
 }
 
 function synthesizePetdexAnimations(columns: number, frameCount: number): Record<string, PetAnimationDefinition> {
-  const rows = new Map(petdexRows.map((name, index) => [name, rowFrames(index, columns, frameCount)]));
+  const rows = new Map(petdexRows.map((name, index) => [
+    name,
+    rowFrames(index, columns, frameCount, visibleFrameCountForRow(name, columns)),
+  ]));
   const idle = rows.get("idle")?.length ? rows.get("idle") as number[] : [0];
   const run = rows.get("run")?.length ? rows.get("run") as number[] : idle;
   const wave = rows.get("wave")?.length ? rows.get("wave") as number[] : idle;

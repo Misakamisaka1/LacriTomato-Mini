@@ -116,7 +116,7 @@ describe("pet skin service", () => {
     expect(result.skin.source).toBe("bundled");
   });
 
-  it("synthesizes required app animations for row-state Petdex skins", () => {
+  it("synthesizes required app animations without Petdex transparent tail frames", () => {
     const folder = makeTempDir("petdex-skin-");
     writeFileSync(join(folder, "spritesheet.webp"), "fake image", "utf8");
     writeFileSync(join(folder, "pet.json"), JSON.stringify({
@@ -130,8 +130,12 @@ describe("pet skin service", () => {
 
     expect(result.fallbackUsed).toBe(false);
     expect(result.skin.manifest.id).toBe("boba");
-    expect(result.skin.manifest.animations.idle.frames).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
-    expect(result.skin.manifest.animations.walkRight.frames[0]).toBe(16);
-    expect(result.skin.manifest.animations.happy.frames[0]).toBe(40);
+    expect(result.skin.manifest.animations.idle.frames).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(result.skin.manifest.animations.sleepy.frames).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(result.skin.manifest.animations.attentive.frames).toEqual([8, 9, 10, 11, 12, 13, 14, 15]);
+    expect(result.skin.manifest.animations.walkRight.frames).toEqual([16, 17, 18, 19, 20, 21, 22, 23]);
+    expect(result.skin.manifest.animations.walkLeft.frames).toEqual([23, 22, 21, 20, 19, 18, 17, 16]);
+    expect(result.skin.manifest.animations.thinking.frames).toEqual([32, 33, 34, 35, 36]);
+    expect(result.skin.manifest.animations.happy.frames).toEqual([40, 41, 42, 43, 44, 45, 46, 47]);
   });
 });
