@@ -5,11 +5,12 @@ Windows 优先的 Electron 桌面宠物平台。项目把 LacriTomato Mini 桌�
 ## 功能概览
 
 - 桌面宠物：透明置顶宠物窗口，支持拖动、显示/隐藏、透明度、尺寸、动画速度和游走开关。
-- 宠物换肤：可从 Petdex 下载兼容宠物文件夹，在设置页导入 `pet.json + spritesheet.webp/png` 后切换当前桌宠皮肤。
+- 宠物换肤：内置 Petdex 皮肤库，可搜索、预览、下载并立即换肤；也支持导入本地 `pet.json + spritesheet.webp/png` 皮肤文件夹。
+- 皮肤管理：在「我的皮肤」中切换或删除已下载皮肤，皮肤加载失败时自动回退到内置 LacriTomato Mini。
 - 宠物菜单：右键唤起横向头像菜单，插件启用状态变化后会自动刷新。
 - 翻译插件：支持 OpenAI 兼容接口，默认面向 DeepSeek 配置；可保存 API Key、设置源语言/目标语言并保留翻译历史。
 - 快速翻译：复制当前选中文本，打开翻译面板并自动开始翻译。
-- 截图插件：区域截图、窗口目标辅助、复制、保存、贴图、标注和 OCR 结果覆盖层。
+- 截图插件：区域截图、窗口目标辅助、复制、保存、贴图、矩形/箭头/画笔/文字/马赛克标注和 OCR 结果覆盖层。
 - 本地 OCR：内置 `chi_sim.traineddata` 与 `eng.traineddata`，默认使用本地识别；模型 OCR 仍是后续预留能力。
 - 录屏插件：基于 FFmpeg 侧车进程录制屏幕，支持系统声音、麦克风、清晰度、FPS、码率、混音/分轨和录制时隐藏宠物。
 - 宠物聊天：使用已保存模型配置的独立聊天窗口，支持历史、长期记忆、人格模板和主动话题。
@@ -71,11 +72,18 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\prepare-recording-
 - API Key 会通过应用的 secret 服务保存，不写入仓库。
 - 截图默认保存到用户数据目录下的 `screenshots`。
 - 录屏默认保存到用户数据目录下的 `recordings`。
+- 从 Petdex 下载的皮肤保存在用户数据目录下的 `petdex-skins`。
 - 聊天历史和长期记忆保存在用户数据目录中，受设置页的历史条数和记忆开关控制。
 
 ## 宠物皮肤
 
-可在 [Petdex](https://petdex.dev/) 浏览宠物，使用 `npx petdex install <slug>` 下载到本机后，在设置页的「桌宠」分区选择包含 `pet.json` 和 `spritesheet.webp` 或 `spritesheet.png` 的文件夹。导入失败时应用会保留内置 LacriTomato Mini 皮肤。
+应用提供三种皮肤使用方式：
+
+1. 在设置页「皮肤库」中浏览或搜索 [Petdex](https://petdex.dev/) 皮肤，点击「下载并换肤」即可安装并立即使用。
+2. 在「我的皮肤」中查看已下载皮肤，可随时切换或删除；当前正在使用的皮肤需要先切换后才能删除。
+3. 在「桌宠」分区点击「导入皮肤文件夹」，选择包含 `pet.json` 和 `spritesheet.webp` 或 `spritesheet.png` 的本地目录。
+
+Petdex 皮肤库需要网络连接。应用只接受来自 `petdex.dev` 与 `assets.petdex.dev` 的 HTTPS 下载地址；皮肤缺失、格式错误或动画网格不兼容时，会保留或回退到内置 LacriTomato Mini。
 
 ## 常用命令
 
