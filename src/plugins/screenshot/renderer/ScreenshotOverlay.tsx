@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ChangeEvent, type DragEvent, type KeyboardEvent, type MouseEvent, type ReactNode, type CSSProperties } from "react";
 import { ArrowUpRight, Check, Copy, Download, Image as ImageIcon, PenLine, Pin, Redo2, RefreshCcw, ScanText, Square, SquareDashed, Trash2, Type, Undo2, X } from "lucide-react";
+import { pixelateCanvasBrushPath } from "../mosaic";
 import { addAnnotation, undoAnnotation, type Annotation, type Point } from "../types";
 import {
   createFullscreenSelection,
@@ -19,6 +20,8 @@ const disconnectedMessage = "截图服务未连接，请重新启动应用。";
 const manualSelectionThreshold = 3;
 const defaultAnnotationColor = "#ff4d4f";
 const defaultTextFontSize = 22;
+const mosaicBrushSize = 28;
+const mosaicBlockSize = 10;
 const annotationColors = [
   { label: "红色", value: "#ff4d4f" },
   { label: "黄色", value: "#facc15" },
@@ -291,7 +294,7 @@ function annotationFromSelection(tool: AnnotationTool, start: Point, end: Point,
   }
 
   if (tool === "mosaic") {
-    return { type: "mosaic", rect: { x: selection.x, y: selection.y, w: selection.width, h: selection.height }, size: 10 };
+    return { type: "mosaic", points: [start, end], size: mosaicBrushSize, blockSize: mosaicBlockSize };
   }
 
   return { type: "rect", x: selection.x, y: selection.y, w: selection.width, h: selection.height, color };
@@ -319,7 +322,25 @@ function renderAnnotation(annotation: Annotation, index: number) {
     return <text key={index} x={annotation.x} y={annotation.y} fill={annotation.color} fontSize={annotation.fontSize ?? defaultTextFontSize} fontWeight="700">{annotation.text}</text>;
   }
 
-  return <rect key={index} x={annotation.rect.x} y={annotation.rect.y} width={annotation.rect.w} height={annotation.rect.h} fill="rgba(255,255,255,0.38)" stroke="#ffffff" strokeWidth="1" />;
+  if (annotation.type === "mosaic") {
+    const path = annotation.points.length > 1
+      ? pointsToPath(annotation.points)
+      : `M ${annotation.points[0]?.x ?? 0} ${annotation.points[0]?.y ?? 0} L ${(annotation.points[0]?.x ?? 0) + 0.01} ${annotation.points[0]?.y ?? 0}`;
+
+    return (
+      <path
+        key={index}
+        className="screenshot-mosaic-stroke"
+        d={path}
+        fill="none"
+        strokeWidth={annotation.size}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    );
+  }
+
+  return null;
 }
 
 function drawArrowHead(context: CanvasRenderingContext2D, from: Point, to: Point) {
@@ -377,8 +398,7 @@ function drawAnnotation(context: CanvasRenderingContext2D, annotation: Annotatio
   }
 
   if (annotation.type === "mosaic") {
-    context.fillStyle = "rgba(255,255,255,0.48)";
-    context.fillRect(annotation.rect.x, annotation.rect.y, annotation.rect.w, annotation.rect.h);
+    pixelateCanvasBrushPath(context, annotation.points, annotation.size, annotation.blockSize);
   }
 
   context.restore();
@@ -765,9 +785,15 @@ export function ScreenshotOverlay() {
     setAnnotationStart(point);
     if (activeTool === "pen") {
       setDraftAnnotation({ type: "pen", points: [point], color: annotationColor, size: 4 });
-    } else {
-      setDraftAnnotation(annotationFromSelection(activeTool, point, point, annotationColor));
+      return;
     }
+
+    if (activeTool === "mosaic") {
+      setDraftAnnotation({ type: "mosaic", points: [point], size: mosaicBrushSize, blockSize: mosaicBlockSize });
+      return;
+    }
+
+    setDraftAnnotation(annotationFromSelection(activeTool, point, point, annotationColor));
   }
 
   function moveAnnotation(event: MouseEvent<HTMLElement>) {
@@ -780,6 +806,11 @@ export function ScreenshotOverlay() {
     const point = readSurfacePoint(event, surfaceSize);
     if (activeTool === "pen") {
       setDraftAnnotation((current) => current?.type === "pen" ? { ...current, points: [...current.points, point] } : current);
+      return;
+    }
+
+    if (activeTool === "mosaic") {
+      setDraftAnnotation((current) => current?.type === "mosaic" ? { ...current, points: [...current.points, point] } : current);
       return;
     }
 
@@ -796,7 +827,9 @@ export function ScreenshotOverlay() {
     const point = readSurfacePoint(event, surfaceSize);
     const finalAnnotation = activeTool === "pen" && draftAnnotation?.type === "pen"
       ? draftAnnotation
-      : annotationFromSelection(activeTool, annotationStart, point, annotationColor);
+      : activeTool === "mosaic" && draftAnnotation?.type === "mosaic"
+        ? { ...draftAnnotation, points: [...draftAnnotation.points, point] }
+        : annotationFromSelection(activeTool, annotationStart, point, annotationColor);
 
     setAnnotations((current) => addAnnotation({ annotations: current }, finalAnnotation).annotations);
     setRedoAnnotations([]);

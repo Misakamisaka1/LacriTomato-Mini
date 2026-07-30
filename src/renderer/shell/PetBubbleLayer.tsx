@@ -1,7 +1,7 @@
 import type { PetBubble, PetEmotion } from "../../shared/petBehavior";
 import "./PetApp.css";
 
-const petEmotions: PetEmotion[] = ["attentive", "thinking", "happy", "sleepy"];
+const petEmotions: PetEmotion[] = ["attentive", "thinking", "happy", "sleepy", "waving", "jumping", "failed", "waiting", "running", "review"];
 
 function readBubbleFromQuery(): PetBubble | undefined {
   const params = new URLSearchParams(window.location.search);

@@ -38,6 +38,11 @@ describe("preload pet skin API", () => {
         importSkinFolder(): Promise<unknown>;
         resetSkin(): Promise<unknown>;
         openPetdex(): Promise<unknown>;
+        listPetdexPets(): Promise<unknown>;
+        installPetdexSkin(slug: string): Promise<unknown>;
+        listManagedSkins(): Promise<unknown>;
+        useManagedSkin(slug: string): Promise<unknown>;
+        deleteManagedSkin(slug: string): Promise<unknown>;
       };
     };
 
@@ -45,11 +50,21 @@ describe("preload pet skin API", () => {
     await api.pet.importSkinFolder();
     await api.pet.resetSkin();
     await api.pet.openPetdex();
+    await api.pet.listPetdexPets();
+    await api.pet.installPetdexSkin("boba");
+    await api.pet.listManagedSkins();
+    await api.pet.useManagedSkin("mint");
+    await api.pet.deleteManagedSkin("mint");
 
     expect(electronMock.ipcRenderer.invoke).toHaveBeenNthCalledWith(1, ipcChannels.petSkinGetCurrent);
     expect(electronMock.ipcRenderer.invoke).toHaveBeenNthCalledWith(2, ipcChannels.petSkinImportFolder);
     expect(electronMock.ipcRenderer.invoke).toHaveBeenNthCalledWith(3, ipcChannels.petSkinReset);
     expect(electronMock.ipcRenderer.invoke).toHaveBeenNthCalledWith(4, ipcChannels.petSkinOpenPetdex);
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenNthCalledWith(5, ipcChannels.petSkinListPetdex);
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenNthCalledWith(6, ipcChannels.petSkinInstallPetdex, { slug: "boba" });
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenNthCalledWith(7, ipcChannels.petSkinListManaged);
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenNthCalledWith(8, ipcChannels.petSkinUseManaged, { slug: "mint" });
+    expect(electronMock.ipcRenderer.invoke).toHaveBeenNthCalledWith(9, ipcChannels.petSkinDeleteManaged, { slug: "mint" });
   });
 
   it("subscribes to pet skin changes", () => {

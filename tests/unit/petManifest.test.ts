@@ -12,10 +12,27 @@ describe("pet manifest", () => {
     expect(pet.rows).toBe(9);
   });
 
-  it("defines idle and menu attention animations", () => {
+  it("defines the Petdex 9-state animation contract", () => {
     const pet = manifest as PetManifest;
-    expect(pet.animations.idle.frames.length).toBeGreaterThan(0);
-    expect(pet.animations.attentive.frames.length).toBeGreaterThan(0);
+    expect(Object.keys(pet.animations)).toEqual(expect.arrayContaining([
+      "idle",
+      "runRight",
+      "runLeft",
+      "waving",
+      "jumping",
+      "failed",
+      "waiting",
+      "running",
+      "review",
+    ]));
+    expect(pet.animations.runRight.frames).toEqual([8, 9, 10, 11, 12, 13, 14, 15]);
+    expect(pet.animations.runLeft.frames).toEqual([16, 17, 18, 19, 20, 21, 22, 23]);
+    expect(pet.animations.waving.frames).toEqual([24, 25, 26, 27]);
+    expect(pet.animations.jumping.frames).toEqual([32, 33, 34, 35, 36]);
+    expect(pet.animations.failed.frames).toEqual([40, 41, 42, 43, 44, 45, 46, 47]);
+    expect(pet.animations.waiting.frames).toEqual([48, 49, 50, 51, 52, 53]);
+    expect(pet.animations.running.frames).toEqual([56, 57, 58, 59, 60, 61]);
+    expect(pet.animations.review.frames).toEqual([64, 65, 66, 67, 68, 69]);
   });
 
   it("paces idle blinking like a natural blink cadence", () => {

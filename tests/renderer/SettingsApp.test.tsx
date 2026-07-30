@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { chatPersonalityTemplates } from "../../src/plugins/chat/templates";
 import { SettingsApp } from "../../src/renderer/shell/SettingsApp";
@@ -20,6 +20,11 @@ const getCurrentSkin = vi.fn();
 const importSkinFolder = vi.fn();
 const resetSkin = vi.fn();
 const openPetdex = vi.fn();
+const listPetdexPets = vi.fn();
+const installPetdexSkin = vi.fn();
+const listManagedSkins = vi.fn();
+const useManagedSkin = vi.fn();
+const deleteManagedSkin = vi.fn();
 const onSkinChanged = vi.fn(() => vi.fn());
 
 const bundledSkinResult = {
@@ -54,6 +59,73 @@ const mintSkinResult = {
     },
     spritesheetUrl: "file:///D:/pets/mint/spritesheet.webp",
     sourcePath: "D:/pets/mint",
+    source: "local",
+  },
+  fallbackUsed: false,
+};
+
+function createPetdexCatalogPet(index: number) {
+  const label = String(index).padStart(2, "0");
+  return {
+    slug: `pet-${label}`,
+    displayName: `Pet ${label}`,
+    kind: "creature",
+    submittedBy: "artist",
+    previewUrl: `https://assets.petdex.dev/pets/pet-${label}/sprite.webp`,
+    heat: 100 - index,
+    heatLabel: `${100 - index} 热度`,
+  };
+}
+
+const petdexCatalogResult = {
+  generatedAt: "2026-07-06T19:45:10.131Z",
+  total: 26,
+  pets: [
+    {
+      slug: "boba",
+      displayName: "Boba",
+      kind: "creature",
+      submittedBy: "railly",
+      previewUrl: "https://assets.petdex.dev/pets/boba/sprite.webp",
+      heat: 4500,
+      heatLabel: "4.5K 热度",
+    },
+    ...Array.from({ length: 25 }, (_item, index) => createPetdexCatalogPet(index + 1)),
+  ],
+};
+
+const managedSkinsResult = {
+  skins: [
+    {
+      slug: "boba",
+      displayName: "Boba",
+      sourcePath: "D:/pets/boba",
+      previewUrl: "file:///D:/pets/boba/spritesheet.webp",
+      current: true,
+    },
+    {
+      slug: "mint",
+      displayName: "Mint",
+      sourcePath: "D:/pets/mint",
+      previewUrl: "file:///D:/pets/mint/spritesheet.webp",
+      current: false,
+    },
+  ],
+};
+const bobaSkinResult = {
+  skin: {
+    manifest: {
+      id: "boba",
+      displayName: "Boba",
+      spritesheetPath: "spritesheet.webp",
+      frameWidth: 192,
+      frameHeight: 208,
+      columns: 8,
+      rows: 9,
+      animations: { idle: { frames: [0], fps: 6, loop: true } },
+    },
+    spritesheetUrl: "file:///D:/pets/boba/spritesheet.webp",
+    sourcePath: "D:/pets/boba",
     source: "local",
   },
   fallbackUsed: false,
@@ -101,6 +173,11 @@ describe("SettingsApp", () => {
     importSkinFolder.mockResolvedValue(mintSkinResult);
     resetSkin.mockResolvedValue(bundledSkinResult);
     openPetdex.mockResolvedValue(undefined);
+    listPetdexPets.mockResolvedValue(petdexCatalogResult);
+    installPetdexSkin.mockResolvedValue(bobaSkinResult);
+    listManagedSkins.mockResolvedValue(managedSkinsResult);
+    useManagedSkin.mockResolvedValue(mintSkinResult);
+    deleteManagedSkin.mockResolvedValue({ skins: managedSkinsResult.skins.slice(0, 1) });
     onSkinChanged.mockImplementation(() => vi.fn());
     window.petdex = {
       config: {
@@ -145,6 +222,11 @@ describe("SettingsApp", () => {
         importSkinFolder,
         resetSkin,
         openPetdex,
+        listPetdexPets,
+        installPetdexSkin,
+        listManagedSkins,
+        useManagedSkin,
+        deleteManagedSkin,
         onSkinChanged,
       } as never,
       windowControls: {
@@ -234,6 +316,11 @@ describe("SettingsApp", () => {
 
     expect(screen.getByRole("heading", { name: "桌宠" })).toBeTruthy();
     expect(screen.getByLabelText("宠物高度")).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Petdex 皮肤库" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "皮肤库" }));
+
+    expect(await screen.findByRole("region", { name: "Petdex 皮肤库" })).toBeTruthy();
   });
 
   it("edits the chat prompt template, memory, and clears history", async () => {
@@ -381,6 +468,113 @@ describe("SettingsApp", () => {
     await waitFor(() => expect(showTip).toHaveBeenCalledWith("皮肤已切换为 Mint"));
   });
 
+
+  it("shows standalone Petdex pets with previews and downloads the selected skin", async () => {
+    render(<SettingsApp />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "皮肤库" }));
+
+    const library = await screen.findByRole("region", { name: "Petdex 皮肤库" });
+    expect(await within(library).findByText("Boba")).toBeTruthy();
+    expect(within(library).getByRole("img", { name: "Boba 预览" })).toBeTruthy();
+    expect(within(library).getByText("creature · railly")).toBeTruthy();
+    expect(within(library).getByText("4.5K 热度")).toBeTruthy();
+
+    fireEvent.click(within(library).getByRole("button", { name: "下载并换肤 Boba" }));
+
+    await waitFor(() => expect(installPetdexSkin).toHaveBeenCalledWith("boba"));
+    await waitFor(() => expect(showTip).toHaveBeenCalledWith("皮肤已切换为 Boba"));
+  });
+
+  it("shows downloaded skins, marks the current skin, switches locally, and deletes non-current skins", async () => {
+    listManagedSkins
+      .mockResolvedValueOnce(managedSkinsResult)
+      .mockResolvedValueOnce({
+        skins: [
+          { ...managedSkinsResult.skins[0], current: false },
+          { ...managedSkinsResult.skins[1], current: true },
+        ],
+      });
+    deleteManagedSkin.mockResolvedValueOnce({
+      skins: [{ ...managedSkinsResult.skins[1], current: true }],
+    });
+    render(<SettingsApp />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "皮肤库" }));
+    expect(screen.queryByRole("region", { name: "我的皮肤" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "我的皮肤" }));
+
+    const owned = await screen.findByRole("region", { name: "我的皮肤" });
+    expect(await within(owned).findByText("Boba")).toBeTruthy();
+    expect(within(owned).getByText("当前使用")).toBeTruthy();
+    expect((within(owned).getByRole("button", { name: "当前使用 Boba" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((within(owned).getByRole("button", { name: "删除 Boba" }) as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.click(within(owned).getByRole("button", { name: "切换到 Mint" }));
+
+    await waitFor(() => expect(useManagedSkin).toHaveBeenCalledWith("mint"));
+    await waitFor(() => expect(showTip).toHaveBeenCalledWith("皮肤已切换为 Mint"));
+    expect(await within(owned).findByText("D:/pets/mint")).toBeTruthy();
+
+    expect(((await within(owned).findByRole("button", { name: "当前使用 Mint" })) as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.click(within(owned).getByRole("button", { name: "删除 Boba" }));
+
+    await waitFor(() => expect(deleteManagedSkin).toHaveBeenCalledWith("boba"));
+    await waitFor(() => expect(showTip).toHaveBeenCalledWith("已删除 Boba"));
+    expect(within(owned).queryByText("Boba")).toBeNull();
+  });
+
+  it("shows more skin library results and pages through the catalog", async () => {
+    render(<SettingsApp />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "皮肤库" }));
+
+    const library = await screen.findByRole("region", { name: "Petdex 皮肤库" });
+    expect(await within(library).findByText("Boba")).toBeTruthy();
+    expect(within(library).getAllByRole("article")).toHaveLength(24);
+    expect(within(library).queryByText("Pet 24")).toBeNull();
+
+    fireEvent.click(within(library).getByRole("button", { name: "下一页" }));
+
+    expect(await within(library).findByText("Pet 24")).toBeTruthy();
+    expect(within(library).getByText("第 2 / 2 页")).toBeTruthy();
+    expect(within(library).queryByText("Boba")).toBeNull();
+  });
+
+  it("refreshes the skin library and resets pagination", async () => {
+    listPetdexPets
+      .mockResolvedValueOnce(petdexCatalogResult)
+      .mockResolvedValueOnce({
+        generatedAt: "2026-07-07T09:00:00.000Z",
+        total: 1,
+        pets: [{
+          slug: "newcomer",
+          displayName: "Newcomer",
+          kind: "character",
+          submittedBy: "fresh",
+          previewUrl: "https://assets.petdex.dev/pets/newcomer/sprite.webp",
+          heat: 99,
+          heatLabel: "99 热度",
+        }],
+      });
+    render(<SettingsApp />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "皮肤库" }));
+
+    const library = await screen.findByRole("region", { name: "Petdex 皮肤库" });
+    expect(await within(library).findByText("Boba")).toBeTruthy();
+    fireEvent.click(within(library).getByRole("button", { name: "下一页" }));
+    expect(await within(library).findByText("Pet 24")).toBeTruthy();
+
+    fireEvent.click(within(library).getByRole("button", { name: "刷新列表" }));
+
+    await waitFor(() => expect(listPetdexPets).toHaveBeenCalledTimes(2));
+    expect(await within(library).findByText("Newcomer")).toBeTruthy();
+    expect(within(library).queryByText("Pet 24")).toBeNull();
+    expect(within(library).getByText("第 1 / 1 页")).toBeTruthy();
+  });
   it("opens Petdex and resets the active skin", async () => {
     render(<SettingsApp />);
     fireEvent.click(await screen.findByRole("button", { name: "桌宠" }));

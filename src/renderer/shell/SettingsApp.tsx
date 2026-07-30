@@ -1,22 +1,25 @@
-import { type KeyboardEvent, useEffect, useMemo, useState } from "react";
+import { type CSSProperties, type KeyboardEvent, useEffect, useMemo, useState } from "react";
 import { chatPersonalityTemplates } from "../../plugins/chat/templates";
 import type { AppConfig } from "../../shared/configSchema";
-import type { PetSkinLoadResult } from "../../shared/petManifest";
+import type { ManagedPetSkinResult, PetdexCatalogPet, PetdexCatalogResult, PetSkinLoadResult } from "../../shared/petManifest";
 import { defaultAppConfig } from "../../shared/configSchema";
 import type { PluginContributions, PluginShortcutContribution } from "../../shared/pluginTypes";
 import { captureShortcutAccelerator } from "../../shared/shortcutAccelerator";
 import "./SettingsApp.css";
 
-type SettingsSection = "model" | "shortcuts" | "translator" | "screenshot" | "ocr" | "pet" | "plugins" | "chat" | "recording";
+type SettingsSection = "model" | "shortcuts" | "translator" | "screenshot" | "ocr" | "pet" | "skinLibrary" | "managedSkins" | "plugins" | "chat" | "recording";
 type ShortcutKey = keyof AppConfig["shortcuts"];
 type BooleanSection = Extract<SettingsSection, "screenshot" | "recording" | "ocr" | "pet" | "plugins">;
 
 const disconnectedMessage = "桌宠服务未连接，请重新启动应用。";
+const petdexPageSize = 24;
 
 const coreSections: { id: SettingsSection; label: string }[] = [
   { id: "model", label: "模型" },
   { id: "shortcuts", label: "快捷键" },
   { id: "pet", label: "桌宠" },
+  { id: "skinLibrary", label: "皮肤库" },
+  { id: "managedSkins", label: "我的皮肤" },
   { id: "plugins", label: "插件" },
 ];
 
@@ -99,6 +102,18 @@ function getErrorMessage(error: unknown, fallback: string) {
   return error instanceof Error ? error.message : fallback;
 }
 
+function getPetdexPetMeta(pet: PetdexCatalogPet) {
+  return [pet.kind, pet.submittedBy].filter(Boolean).join(" · ") || pet.slug;
+}
+
+function getSkinPreviewStyle(previewUrl: string): CSSProperties {
+  return { backgroundImage: `url("${previewUrl.replaceAll('"', "%22")}")` };
+}
+
+function getPetdexPreviewStyle(pet: PetdexCatalogPet): CSSProperties {
+  return getSkinPreviewStyle(pet.previewUrl);
+}
+
 function makeShortcutLabel(shortcut: PluginShortcutContribution) {
   return shortcut.label.endsWith("快捷键") ? shortcut.label : `${shortcut.label}快捷键`;
 }
@@ -121,7 +136,8 @@ function buildSections(contributions?: PluginContributions) {
       continue;
     }
 
-    const insertAt = mappedId === "translator" ? 2 : sections.length - 2;
+    const utilityStart = sections.findIndex((item) => item.id === "pet");
+    const insertAt = mappedId === "translator" ? 2 : utilityStart >= 0 ? utilityStart : sections.length - 2;
     sections.splice(Math.max(0, insertAt), 0, { id: mappedId, label: section.label });
     known.add(mappedId);
   }
@@ -208,6 +224,17 @@ export function SettingsApp() {
   const [chatMemory, setChatMemory] = useState("");
   const [recordingAudioDevices, setRecordingAudioDevices] = useState<Array<{ id: string; name: string; default?: boolean }>>([]);
   const [petSkin, setPetSkin] = useState<PetSkinLoadResult | undefined>();
+  const [petdexCatalog, setPetdexCatalog] = useState<PetdexCatalogResult | undefined>();
+  const [petdexQuery, setPetdexQuery] = useState("");
+  const [petdexLoading, setPetdexLoading] = useState(false);
+  const [petdexError, setPetdexError] = useState("");
+  const [petdexPage, setPetdexPage] = useState(0);
+  const [managedSkins, setManagedSkins] = useState<ManagedPetSkinResult | undefined>();
+  const [managedSkinsLoading, setManagedSkinsLoading] = useState(false);
+  const [managedSkinsError, setManagedSkinsError] = useState("");
+  const [usingManagedSkinSlug, setUsingManagedSkinSlug] = useState("");
+  const [deletingManagedSkinSlug, setDeletingManagedSkinSlug] = useState("");
+  const [installingPetSlug, setInstallingPetSlug] = useState("");
   const [notice, setNotice] = useState("");
   const [connectionBusy, setConnectionBusy] = useState(false);
 
@@ -234,6 +261,22 @@ export function SettingsApp() {
 
   const sections = useMemo(() => buildSections(contributions), [contributions]);
   const shortcutFields = useMemo(() => buildShortcutFields(contributions), [contributions]);
+  const filteredPetdexPets = useMemo(() => {
+    const query = petdexQuery.trim().toLowerCase();
+    const pets = petdexCatalog?.pets ?? [];
+    return pets.filter((pet) => !query
+      || pet.slug.toLowerCase().includes(query)
+      || pet.displayName.toLowerCase().includes(query)
+      || pet.kind.toLowerCase().includes(query)
+      || pet.submittedBy.toLowerCase().includes(query)
+      || pet.heatLabel.toLowerCase().includes(query));
+  }, [petdexCatalog, petdexQuery]);
+  const petdexPageCount = Math.max(1, Math.ceil(filteredPetdexPets.length / petdexPageSize));
+  const activePetdexPage = Math.min(petdexPage, petdexPageCount - 1);
+  const visiblePetdexPets = useMemo(() => {
+    const start = activePetdexPage * petdexPageSize;
+    return filteredPetdexPets.slice(start, start + petdexPageSize);
+  }, [activePetdexPage, filteredPetdexPets]);
 
   useEffect(() => {
     const api = window.petdex;
@@ -264,6 +307,17 @@ export function SettingsApp() {
         void showSettingsTip(getErrorMessage(error, "读取设置失败"));
       });
   }, []);
+
+
+  useEffect(() => {
+    if (activeSection === "skinLibrary" && !petdexCatalog && !petdexLoading && !petdexError) {
+      void loadPetdexPets();
+    }
+
+    if (activeSection === "managedSkins" && !managedSkins && !managedSkinsLoading && !managedSkinsError) {
+      void loadManagedSkins();
+    }
+  }, [activeSection, petdexCatalog, petdexLoading, petdexError, managedSkins, managedSkinsLoading, managedSkinsError]);
 
   function updateSection<K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) {
     setConfig((current) => ({
@@ -359,6 +413,116 @@ export function SettingsApp() {
       await api.pet.openPetdex();
     } catch (error) {
       void showSettingsTip(getErrorMessage(error, "打开 Petdex 失败"));
+    }
+  }
+
+
+  function updatePetdexQuery(value: string) {
+    setPetdexQuery(value);
+    setPetdexPage(0);
+  }
+
+  async function loadPetdexPets() {
+    const api = window.petdex;
+    if (!api?.pet?.listPetdexPets) {
+      setPetdexError(disconnectedMessage);
+      void showSettingsTip(disconnectedMessage);
+      return;
+    }
+
+    setPetdexLoading(true);
+    setPetdexError("");
+    try {
+      setPetdexCatalog(await api.pet.listPetdexPets());
+      setPetdexPage(0);
+    } catch (error) {
+      const message = getErrorMessage(error, "读取 Petdex 皮肤库失败");
+      setPetdexError(message);
+      void showSettingsTip(message);
+    } finally {
+      setPetdexLoading(false);
+    }
+  }
+
+  async function loadManagedSkins() {
+    const api = window.petdex;
+    if (!api?.pet?.listManagedSkins) {
+      setManagedSkinsError(disconnectedMessage);
+      void showSettingsTip(disconnectedMessage);
+      return;
+    }
+
+    setManagedSkinsLoading(true);
+    setManagedSkinsError("");
+    try {
+      setManagedSkins(await api.pet.listManagedSkins());
+    } catch (error) {
+      const message = getErrorMessage(error, "读取我的皮肤失败");
+      setManagedSkinsError(message);
+      void showSettingsTip(message);
+    } finally {
+      setManagedSkinsLoading(false);
+    }
+  }
+
+  async function useManagedSkin(slug: string) {
+    const api = window.petdex;
+    if (!api?.pet?.useManagedSkin) {
+      void showSettingsTip(disconnectedMessage);
+      return;
+    }
+
+    setUsingManagedSkinSlug(slug);
+    try {
+      const result = await api.pet.useManagedSkin(slug);
+      setPetSkin(result);
+      await loadManagedSkins();
+      const name = result.skin.manifest.displayName;
+      void showSettingsTip(result.warning ?? `皮肤已切换为 ${name}`);
+    } catch (error) {
+      void showSettingsTip(getErrorMessage(error, "切换皮肤失败"));
+    } finally {
+      setUsingManagedSkinSlug("");
+    }
+  }
+
+  async function deleteManagedSkin(slug: string) {
+    const api = window.petdex;
+    if (!api?.pet?.deleteManagedSkin) {
+      void showSettingsTip(disconnectedMessage);
+      return;
+    }
+
+    const skinName = managedSkins?.skins.find((skin) => skin.slug === slug)?.displayName ?? slug;
+    setDeletingManagedSkinSlug(slug);
+    try {
+      setManagedSkins(await api.pet.deleteManagedSkin(slug));
+      void showSettingsTip(`已删除 ${skinName}`);
+    } catch (error) {
+      void showSettingsTip(getErrorMessage(error, "删除皮肤失败"));
+    } finally {
+      setDeletingManagedSkinSlug("");
+    }
+  }
+
+  async function installPetdexPet(slug: string) {
+    const api = window.petdex;
+    if (!api?.pet?.installPetdexSkin) {
+      void showSettingsTip(disconnectedMessage);
+      return;
+    }
+
+    setInstallingPetSlug(slug);
+    try {
+      const result = await api.pet.installPetdexSkin(slug);
+      setPetSkin(result);
+      void loadManagedSkins();
+      const name = result.skin.manifest.displayName;
+      void showSettingsTip(result.warning ?? `皮肤已切换为 ${name}`);
+    } catch (error) {
+      void showSettingsTip(getErrorMessage(error, "下载 Petdex 皮肤失败"));
+    } finally {
+      setInstallingPetSlug("");
     }
   }
 
@@ -740,6 +904,126 @@ export function SettingsApp() {
               />
               自动游走
             </label>
+          </section>
+        )}
+        {activeSection === "skinLibrary" && (
+          <section className="settings-panel" aria-labelledby="settings-skin-library-heading">
+            <h1 id="settings-skin-library-heading">皮肤库</h1>
+            <section className="settings-petdex-panel" aria-label="Petdex 皮肤库">
+              <div className="settings-petdex-header">
+                <div>
+                  <span className="settings-skin-label">Petdex 皮肤库</span>
+                  <strong>{petdexCatalog ? `${petdexCatalog.total} 个可下载皮肤` : "正在准备"}</strong>
+                </div>
+                <button type="button" className="settings-secondary" disabled={petdexLoading} onClick={() => void loadPetdexPets()}>
+                  {petdexLoading ? "刷新中" : "刷新列表"}
+                </button>
+              </div>
+              <label className="settings-petdex-search">
+                搜索 Petdex
+                <input
+                  aria-label="搜索 Petdex 皮肤"
+                  value={petdexQuery}
+                  onChange={(event) => updatePetdexQuery(event.target.value)}
+                />
+              </label>
+              {petdexError && <p className="settings-field-note">{petdexError}</p>}
+              <div className="settings-petdex-list">
+                {petdexLoading && !petdexCatalog && <p className="settings-field-note">正在加载 Petdex 皮肤...</p>}
+                {!petdexLoading && petdexCatalog && visiblePetdexPets.length === 0 && <p className="settings-field-note">没有匹配的皮肤</p>}
+                {visiblePetdexPets.map((pet) => (
+                  <article className="settings-petdex-item" aria-label={`${pet.displayName} 皮肤`} key={pet.slug}>
+                    <div className="settings-petdex-preview" role="img" aria-label={`${pet.displayName} 预览`} style={getPetdexPreviewStyle(pet)} />
+                    <div className="settings-petdex-info">
+                      <strong>{pet.displayName}</strong>
+                      <span>{getPetdexPetMeta(pet)}</span>
+                      <span>{pet.heatLabel}</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="settings-secondary"
+                      aria-label={`下载并换肤 ${pet.displayName}`}
+                      disabled={Boolean(installingPetSlug)}
+                      onClick={() => void installPetdexPet(pet.slug)}
+                    >
+                      {installingPetSlug === pet.slug ? "下载中" : "下载并换肤"}
+                    </button>
+                  </article>
+                ))}
+              </div>
+              {petdexCatalog && filteredPetdexPets.length > 0 && (
+                <div className="settings-petdex-pagination">
+                  <button
+                    type="button"
+                    className="settings-secondary"
+                    disabled={activePetdexPage === 0}
+                    onClick={() => setPetdexPage((page) => Math.max(0, page - 1))}
+                  >
+                    上一页
+                  </button>
+                  <span>第 {activePetdexPage + 1} / {petdexPageCount} 页</span>
+                  <button
+                    type="button"
+                    className="settings-secondary"
+                    disabled={activePetdexPage >= petdexPageCount - 1}
+                    onClick={() => setPetdexPage((page) => Math.min(petdexPageCount - 1, page + 1))}
+                  >
+                    下一页
+                  </button>
+                </div>
+              )}
+            </section>
+          </section>
+        )}
+        {activeSection === "managedSkins" && (
+          <section className="settings-panel" aria-labelledby="settings-managed-skins-heading">
+            <h1 id="settings-managed-skins-heading">我的皮肤</h1>
+            <section className="settings-managed-skin-panel" aria-label="已下载皮肤">
+              <div className="settings-petdex-header">
+                <div>
+                  <span className="settings-skin-label">我的皮肤</span>
+                  <strong>{managedSkins ? `${managedSkins.skins.length} 个已下载皮肤` : "正在准备"}</strong>
+                </div>
+                <button type="button" className="settings-secondary" disabled={managedSkinsLoading} onClick={() => void loadManagedSkins()}>
+                  {managedSkinsLoading ? "刷新中" : "刷新"}
+                </button>
+              </div>
+              {managedSkinsError && <p className="settings-field-note">{managedSkinsError}</p>}
+              <div className="settings-managed-skin-list">
+                {managedSkinsLoading && !managedSkins && <p className="settings-field-note">正在加载我的皮肤...</p>}
+                {!managedSkinsLoading && managedSkins && managedSkins.skins.length === 0 && <p className="settings-field-note">还没有下载过皮肤</p>}
+                {managedSkins?.skins.map((skin) => (
+                  <article className="settings-managed-skin-item" aria-label={`${skin.displayName} 已下载皮肤`} key={skin.slug}>
+                    <div className="settings-petdex-preview" role="img" aria-label={`${skin.displayName} 预览`} style={getSkinPreviewStyle(skin.previewUrl)} />
+                    <div className="settings-petdex-info">
+                      <strong>{skin.displayName}</strong>
+                      <span>{skin.sourcePath}</span>
+                      {skin.current && <span className="settings-current-badge">当前使用</span>}
+                    </div>
+                    <div className="settings-managed-skin-actions">
+                      <button
+                        type="button"
+                        className="settings-secondary"
+                        aria-label={skin.current ? `当前使用 ${skin.displayName}` : `切换到 ${skin.displayName}`}
+                        disabled={skin.current || Boolean(usingManagedSkinSlug || deletingManagedSkinSlug)}
+                        onClick={() => void useManagedSkin(skin.slug)}
+                      >
+                        {skin.current ? "使用中" : usingManagedSkinSlug === skin.slug ? "切换中" : "使用"}
+                      </button>
+                      <button
+                        type="button"
+                        className="settings-secondary settings-danger"
+                        aria-label={`删除 ${skin.displayName}`}
+                        disabled={skin.current || Boolean(deletingManagedSkinSlug || usingManagedSkinSlug)}
+                        onClick={() => void deleteManagedSkin(skin.slug)}
+                      >
+                        {deletingManagedSkinSlug === skin.slug ? "删除中" : "删除"}
+                      </button>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </section>
           </section>
         )}
         {activeSection === "chat" && (

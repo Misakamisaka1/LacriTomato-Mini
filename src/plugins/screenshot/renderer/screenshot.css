@@ -153,6 +153,12 @@
   pointer-events: none;
 }
 
+.screenshot-mosaic-stroke {
+  stroke: rgba(255, 255, 255, 0.62);
+  stroke-dasharray: 10 4;
+  filter: blur(1px);
+}
+
 .screenshot-drawing-surface {
   position: absolute;
   inset: 12px;

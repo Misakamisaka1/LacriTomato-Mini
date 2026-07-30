@@ -1,6 +1,6 @@
 import type { AppConfig } from "../shared/configSchema.js";
 import type { PetBubble, PetEmotionPayload } from "../shared/petBehavior.js";
-import type { PetSkinLoadResult } from "../shared/petManifest.js";
+import type { ManagedPetSkinResult, PetdexCatalogResult, PetSkinLoadResult } from "../shared/petManifest.js";
 import type { ChatHistoryEntry, ChatMemoryState, ChatProactiveTopic, ChatSendRequest, ChatSendResult } from "../plugins/chat/types.js";
 import type { PluginContributions, PluginMenuItem } from "../shared/pluginTypes.js";
 import type { RecordingAudioDevice, RecordingStartResult, RecordingState, RecordingStopResult } from "../plugins/recording/types.js";
@@ -72,6 +72,11 @@ export interface PetdexApi {
     importSkinFolder(): Promise<PetSkinLoadResult | undefined>;
     resetSkin(): Promise<PetSkinLoadResult>;
     openPetdex(): Promise<void>;
+    listPetdexPets(): Promise<PetdexCatalogResult>;
+    installPetdexSkin(slug: string): Promise<PetSkinLoadResult>;
+    listManagedSkins(): Promise<ManagedPetSkinResult>;
+    useManagedSkin(slug: string): Promise<PetSkinLoadResult>;
+    deleteManagedSkin(slug: string): Promise<ManagedPetSkinResult>;
     onSkinChanged(callback: (result: PetSkinLoadResult) => void): () => void;
     onMenuAction(callback: (action: string) => void): () => void;
     onBubble(callback: (message: string | PetBubble) => void): () => void;
