@@ -68,6 +68,43 @@ describe("ocr service", () => {
     expect(worker.recognize).toHaveBeenCalledWith(image);
   });
 
+  it("maps tesseract line boxes into the OCR result", async () => {
+    const service = createOcrService();
+    const image = Buffer.from([1, 2, 3]);
+    const worker = {
+      recognize: vi.fn().mockResolvedValue({
+        data: {
+          text: "第一行\n第二行",
+          confidence: 90,
+          lines: [
+            { text: "第一行", confidence: 95, bbox: { x0: 10, y0: 20, x1: 210, y1: 50 } },
+            { text: "第二行", confidence: 84, bbox: { x0: 12, y0: 55, x1: 208, y1: 85 } },
+          ],
+        },
+      }),
+      terminate: vi.fn().mockResolvedValue({ data: undefined, jobId: "terminate" }),
+    };
+    tesseract.createWorker.mockResolvedValueOnce(worker);
+
+    await expect(service.recognize(image, { mode: "local", languages: ["chi_sim", "eng"] })).resolves.toEqual({
+      text: "第一行\n第二行",
+      confidence: 90,
+      lines: [
+        { text: "第一行", confidence: 95, bbox: { x: 10, y: 20, width: 200, height: 30 } },
+        { text: "第二行", confidence: 84, bbox: { x: 12, y: 55, width: 196, height: 30 } },
+      ],
+    });
+  });
+
+  it("omits line boxes when the recognizer does not provide them", async () => {
+    const service = createOcrService();
+    const worker = createWorkerMock();
+    tesseract.createWorker.mockResolvedValueOnce(worker);
+
+    const result = await service.recognize(Buffer.from([1]), { mode: "local", languages: ["eng"] });
+    expect(result.lines).toBeUndefined();
+  });
+
   it("reuses the worker for repeated recognitions with the same languages", async () => {
     const service = createOcrService();
     const worker = createWorkerMock();

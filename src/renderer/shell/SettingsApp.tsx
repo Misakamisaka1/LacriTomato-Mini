@@ -781,6 +781,26 @@ export function SettingsApp() {
               </select>
             </label>
             <label>
+              保存格式
+              <select
+                value={config.screenshot.saveFormat}
+                onChange={(event) => updateSection("screenshot", { saveFormat: event.target.value as AppConfig["screenshot"]["saveFormat"] })}
+              >
+                <option value="png">PNG</option>
+                <option value="jpeg">JPEG</option>
+              </select>
+            </label>
+            <label>
+              JPEG/WebP 质量
+              <input
+                type="number"
+                min="1"
+                max="100"
+                value={config.screenshot.jpegQuality}
+                onChange={(event) => updateSection("screenshot", { jpegQuality: Number(event.target.value) })}
+              />
+            </label>
+            <label>
               默认标注颜色
               <input
                 type="color"

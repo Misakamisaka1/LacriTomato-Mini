@@ -318,3 +318,87 @@ export function pixelateCanvasBrushPath(
   imageData.data.set(pixels);
   context.putImageData(imageData, 0, 0);
 }
+
+function blurStrokeMask(context: CanvasRenderingContext2D, points: MosaicPoint[], brushSize: number) {
+  const mask = document.createElement("canvas");
+  mask.width = context.canvas.width;
+  mask.height = context.canvas.height;
+  const maskContext = mask.getContext("2d");
+  if (!maskContext) {
+    return undefined;
+  }
+
+  // Draw the brush path in the same coordinate space as the main context so
+  // the mask aligns with the annotation coordinates under any transform.
+  maskContext.setTransform(context.getTransform());
+  maskContext.strokeStyle = "#fff";
+  maskContext.lineWidth = brushSize;
+  maskContext.lineCap = "round";
+  maskContext.lineJoin = "round";
+  maskContext.beginPath();
+  points.forEach((point, index) => {
+    if (index === 0) {
+      maskContext.moveTo(point.x, point.y);
+    } else {
+      maskContext.lineTo(point.x, point.y);
+    }
+  });
+  maskContext.stroke();
+  return mask;
+}
+
+/**
+ * Gaussian-blurs the pixels under a brush path. Works on a single point too
+ * (a dot). Composite trick: original minus the mask, plus the blurred image
+ * clipped to the mask, all at identity transform.
+ */
+export function blurCanvasBrushPath(
+  context: CanvasRenderingContext2D,
+  points: MosaicPoint[],
+  brushSize: number,
+  radius: number,
+) {
+  const width = context.canvas.width;
+  const height = context.canvas.height;
+  if (width <= 0 || height <= 0 || points.length === 0) {
+    return;
+  }
+
+  const mask = blurStrokeMask(context, points, Math.max(1, brushSize));
+  if (!mask) {
+    return;
+  }
+
+  const snapshot = context.getImageData(0, 0, width, height);
+  const blurred = document.createElement("canvas");
+  blurred.width = width;
+  blurred.height = height;
+  const blurredContext = blurred.getContext("2d");
+  if (!blurredContext) {
+    return;
+  }
+  blurredContext.putImageData(snapshot, 0, 0);
+  blurredContext.filter = `blur(${Math.max(0.5, radius)}px)`;
+  blurredContext.drawImage(blurred, 0, 0);
+
+  const blurredMasked = document.createElement("canvas");
+  blurredMasked.width = width;
+  blurredMasked.height = height;
+  const maskedContext = blurredMasked.getContext("2d");
+  if (!maskedContext) {
+    return;
+  }
+  maskedContext.drawImage(blurred, 0, 0);
+  maskedContext.globalCompositeOperation = "destination-in";
+  maskedContext.drawImage(mask, 0, 0);
+
+  context.save();
+  context.setTransform(1, 0, 0, 1, 0, 0);
+  context.clearRect(0, 0, width, height);
+  context.putImageData(snapshot, 0, 0);
+  context.globalCompositeOperation = "destination-out";
+  context.drawImage(mask, 0, 0);
+  context.globalCompositeOperation = "source-over";
+  context.drawImage(blurredMasked, 0, 0);
+  context.restore();
+}

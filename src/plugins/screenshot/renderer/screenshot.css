@@ -159,6 +159,99 @@
   filter: blur(1px);
 }
 
+.screenshot-blur-stroke {
+  stroke: rgba(59, 130, 246, 0.5);
+  stroke-dasharray: 10 4;
+  filter: blur(2px);
+}
+
+.screenshot-annotation-selection {
+  position: absolute;
+  z-index: 3;
+  box-sizing: border-box;
+  border: 1px dashed #60a5fa;
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+.screenshot-annotation-resize {
+  position: absolute;
+  right: -6px;
+  bottom: -6px;
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  background: #ffffff;
+  border: 2px solid #2563eb;
+  border-radius: 999px;
+  cursor: nwse-resize;
+  pointer-events: auto;
+}
+
+.screenshot-loupe {
+  position: fixed;
+  z-index: 8;
+  box-sizing: border-box;
+  overflow: hidden;
+  background-color: #ffffff;
+  background-repeat: no-repeat;
+  border: 1px solid rgba(15, 23, 42, 0.55);
+  border-radius: 8px;
+  box-shadow: 0 12px 36px rgba(15, 23, 42, 0.4);
+  pointer-events: none;
+  image-rendering: pixelated;
+}
+
+.screenshot-loupe-crosshair {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 1px;
+  height: 100%;
+  background: rgba(255, 59, 48, 0.9);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.7);
+}
+
+.screenshot-loupe-crosshair::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 100%;
+  height: 1px;
+  background: rgba(255, 59, 48, 0.9);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.7);
+}
+
+.screenshot-ocr-overlay--lines {
+  padding: 0;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+}
+
+.screenshot-ocr-lines {
+  position: absolute;
+  inset: 0;
+}
+
+.screenshot-ocr-line {
+  position: absolute;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  padding: 0 4px;
+  overflow: hidden;
+  color: #111827;
+  font: 600 12px/1.2 "Microsoft YaHei", "Segoe UI", sans-serif;
+  background: rgba(248, 250, 252, 0.92);
+  border: 1px solid rgba(15, 23, 42, 0.18);
+  border-radius: 2px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
 .screenshot-drawing-surface {
   position: absolute;
   inset: 12px;
@@ -199,15 +292,13 @@
 }
 
 .screenshot-toolbar {
-  position: fixed;
-  left: 50%;
-  bottom: 18px;
+  position: absolute;
   z-index: 3;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 0;
-  max-width: calc(100vw - 24px);
+  max-width: calc(100% - 24px);
   min-height: 58px;
   overflow-x: auto;
   padding: 6px 8px;
@@ -328,12 +419,10 @@
 }
 
 .screenshot-status {
-  position: fixed;
-  left: 50%;
-  bottom: 82px;
+  position: absolute;
   z-index: 3;
   box-sizing: border-box;
-  max-width: min(760px, calc(100vw - 32px));
+  max-width: min(760px, calc(100% - 32px));
   margin: 0;
   padding: 8px 12px;
   color: #fff;

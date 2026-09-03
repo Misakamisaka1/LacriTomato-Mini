@@ -15,8 +15,12 @@ const screenshotApi = {
     width: 320,
     height: 180,
   }),
+  getCaptureImage: vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3])),
   listWindowTargets: vi.fn().mockResolvedValue([]),
   getCursorPoint: vi.fn().mockResolvedValue({ x: 0, y: 0 }),
+  reportSession: vi.fn().mockResolvedValue(undefined),
+  onSessionUpdate: vi.fn((_callback: (state: unknown) => void) => () => undefined),
+  onCursorUpdate: vi.fn(),
   showTip: vi.fn().mockResolvedValue(undefined),
   closeOverlay: vi.fn(),
 };
@@ -76,6 +80,15 @@ describe("PinnedImageView", () => {
 
     await waitFor(() => expect(windowControls.togglePinnedImageZoom).toHaveBeenCalledTimes(1));
     expect(screen.getByRole("main").className).toContain("pinned-image-root--zoomed");
+  });
+
+  it("loads the full-resolution image when the pinned image is zoomed", async () => {
+    render(<PinnedImageView />);
+
+    await screen.findByAltText("桌面贴图");
+    fireEvent.doubleClick(screen.getByLabelText("桌面贴图预览"));
+
+    await waitFor(() => expect(screenshotApi.getCaptureImage).toHaveBeenCalledWith("capture-1"));
   });
 
   it("opens and exits a fullscreen preview from the pinned image toolbar", async () => {

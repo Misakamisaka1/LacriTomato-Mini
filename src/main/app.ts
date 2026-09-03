@@ -13,6 +13,7 @@ import { registerCoreIpc } from "./ipc/registerCoreIpc.js";
 import { registerAppShortcuts } from "./services/appShortcuts.js";
 import { createChatStateService } from "./services/chatStateService.js";
 import { createConfigService } from "./services/configService.js";
+import { createPetPositionService } from "./services/petPositionService.js";
 import { createModelService } from "./services/modelService.js";
 import { createPluginRegistry } from "./services/pluginRegistry.js";
 import { createProactiveTopicService } from "./services/proactiveTopicService.js";
@@ -99,7 +100,18 @@ async function main() {
     preprocessImage: createOcrImagePreprocessor(nativeImage),
   });
   const shortcutService = createShortcutService();
+  const petPositionService = createPetPositionService({ userDataPath });
   const petWindow = createPetWindow(preloadPath, configService.getConfig().pet, rendererIndexPath);
+  const savedPetAnchor = petPositionService.load();
+  if (savedPetAnchor) {
+    const initialBounds = petWindow.getBounds();
+    petWindow.setBounds({
+      x: Math.round(savedPetAnchor.x - initialBounds.width / 2),
+      y: Math.round(savedPetAnchor.y - initialBounds.height),
+      width: initialBounds.width,
+      height: initialBounds.height,
+    });
+  }
   const proactiveTopics = new Map<string, ChatProactiveTopic>();
   let petHiddenForRecording = false;
   const recordingControlWindowState: { current?: BrowserWindow } = {};
@@ -346,6 +358,8 @@ async function main() {
       createScreenshotTipWindow(preloadPath, message, rendererIndexPath);
     },
     replyToProactiveTopic,
+    petWindow,
+    petPositionService,
   });
 
   registerShortcuts(configService.getConfig());

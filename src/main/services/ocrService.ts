@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import type { ScreenshotOcrLine } from "../../plugins/screenshot/workflow.js";
 
 export interface OcrOptions {
   mode: "local" | "model";
@@ -10,6 +11,7 @@ export interface OcrOptions {
 export interface OcrResult {
   text: string;
   confidence: number;
+  lines?: ScreenshotOcrLine[];
 }
 
 export interface OcrService {
@@ -62,12 +64,62 @@ function findLocalTrainedDataPath(languages: string[], trainedDataPath: string) 
 }
 
 function cloneResult(result: OcrResult): OcrResult {
-  return { text: result.text, confidence: result.confidence };
+  return {
+    text: result.text,
+    confidence: result.confidence,
+    lines: result.lines?.map((line) => ({ ...line, bbox: { ...line.bbox } })),
+  };
 }
 
 function readConfidence(value: unknown) {
   const confidence = Number(value);
   return Number.isFinite(confidence) ? confidence : 0;
+}
+
+interface TesseractLine {
+  text?: unknown;
+  confidence?: unknown;
+  bbox?: { x0?: unknown; y0?: unknown; x1?: unknown; y1?: unknown };
+}
+
+function readOcrLines(data: unknown): ScreenshotOcrLine[] | undefined {
+  const source = data as { lines?: unknown } | null;
+  if (!source || !Array.isArray(source.lines)) {
+    return undefined;
+  }
+
+  const lines = source.lines.flatMap((line): ScreenshotOcrLine[] => {
+    const candidate = line as TesseractLine;
+    if (!candidate || typeof candidate.text !== "string" || !candidate.bbox) {
+      return [];
+    }
+
+    const left = Number(candidate.bbox.x0);
+    const top = Number(candidate.bbox.y0);
+    const right = Number(candidate.bbox.x1);
+    const bottom = Number(candidate.bbox.y1);
+    if (![left, top, right, bottom].every(Number.isFinite)) {
+      return [];
+    }
+
+    const text = candidate.text.trim();
+    if (!text) {
+      return [];
+    }
+
+    return [{
+      text,
+      bbox: {
+        x: left,
+        y: top,
+        width: Math.max(1, right - left),
+        height: Math.max(1, bottom - top),
+      },
+      confidence: readConfidence(candidate.confidence),
+    }];
+  });
+
+  return lines.length > 0 ? lines : undefined;
 }
 
 export function createOcrService(options: OcrServiceOptions = {}): OcrService {
@@ -152,9 +204,10 @@ export function createOcrService(options: OcrServiceOptions = {}): OcrService {
         const currentWorker = await getWorker(languages);
         const preparedImage = await preprocessImage(image);
         const result = await currentWorker.recognize(preparedImage);
-        const ocrResult = {
+        const ocrResult: OcrResult = {
           text: (result.data.text ?? "").trim(),
           confidence: readConfidence(result.data.confidence),
+          lines: readOcrLines(result.data),
         };
         remember(cacheKey, ocrResult);
         return cloneResult(ocrResult);

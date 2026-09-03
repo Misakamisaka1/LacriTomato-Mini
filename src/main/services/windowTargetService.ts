@@ -79,11 +79,13 @@ function clipToOverlay(target: NativeWindowTarget, overlayBounds: Rectangle): Sc
     return undefined;
   }
 
+  // Targets are reported in absolute virtual-desktop DIP coordinates so every
+  // overlay window can share the same list and snap to windows on any display.
   return {
     id: target.id,
     title: target.title,
-    x: Math.round(left - overlayBounds.x),
-    y: Math.round(top - overlayBounds.y),
+    x: Math.round(left),
+    y: Math.round(top),
     width,
     height,
   };

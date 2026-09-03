@@ -15,9 +15,14 @@ describe("screenshot workflow", () => {
     )).toEqual({ x: 20, y: 40, width: 200, height: 160 });
   });
 
-  it("creates timestamped PNG filenames from the configured pattern", () => {
+  it("creates timestamped filenames from the configured pattern and format", () => {
     expect(createScreenshotFilename("lacritomato-yyyyMMdd-HHmmss", new Date("2026-06-22T04:05:06")))
       .toBe("lacritomato-20260622-040506.png");
+    expect(createScreenshotFilename("lacritomato-yyyyMMdd-HHmmss", new Date("2026-06-22T04:05:06"), "jpg"))
+      .toBe("lacritomato-20260622-040506.jpg");
+    // A pattern that already ends in an image extension is replaced, not doubled.
+    expect(createScreenshotFilename("my-shot.png", new Date("2026-06-22T04:05:06"), "jpg"))
+      .toBe("my-shot.jpg");
   });
 
   it("creates a full screen default selection and picks the first target under the pointer", () => {
@@ -29,5 +34,11 @@ describe("screenshot workflow", () => {
     expect(findScreenshotTargetAtPoint([
       { id: "target", title: "窗口", x: 20, y: 30, width: 200, height: 100 },
     ], { x: 500, y: 500 })).toBeUndefined();
+    // Exclusive edges: a point exactly on the shared right edge hits only the
+    // underlying window, not both.
+    expect(findScreenshotTargetAtPoint([
+      { id: "top", title: "顶层", x: 100, y: 80, width: 200, height: 160 },
+      { id: "bottom", title: "底层", x: 0, y: 0, width: 600, height: 400 },
+    ], { x: 300, y: 120 })).toEqual({ id: "bottom", title: "底层", x: 0, y: 0, width: 600, height: 400 });
   });
 });

@@ -9,16 +9,16 @@ const electronMock = vi.hoisted(() => {
     { id: 1, bounds: { x: 0, y: 0, width: 1920, height: 1080 } },
     { id: 2, bounds: { x: 1920, y: 0, width: 1280, height: 1024 } },
   ];
-  const virtualBounds = { x: 0, y: 0, width: 3200, height: 1080 };
+  // Overlay on display 2 by default
   const overlayWindow = {
-    getBounds: vi.fn(() => ({ x: 0, y: 0, width: 1920, height: 1080 })),
+    getBounds: vi.fn(() => ({ x: 1920, y: 0, width: 1280, height: 1024 })),
     setBounds: vi.fn(),
   };
 
   return {
     handlers,
     overlayWindow,
-    virtualBounds,
+    displays,
     ipcMain: {
       handle: vi.fn((channel: string, handler: (event: { sender: unknown }, payload?: unknown) => unknown) => {
         handlers.set(channel, handler);
@@ -76,20 +76,33 @@ describe("screenshot IPC", () => {
 
     expect(deps.showScreenshotTip).toHaveBeenCalledWith("截图已复制到剪贴板");
   });
-  it("keeps the overlay on the virtual desktop and returns virtual coordinates", () => {
+
+  it("returns the absolute cursor position when no screenshot service is active", () => {
     registerCoreIpc(createDeps() as never);
 
+    // Cursor is at absolute (2020, 140); without a service every overlay gets
+    // the raw virtual-desktop coordinate and the nearest display.
     const result = electronMock.handlers.get(ipcChannels.screenshotGetCursorPoint)?.({ sender: {} });
 
     expect(electronMock.screen.getDisplayNearestPoint).toHaveBeenCalledWith({ x: 2020, y: 140 });
-    expect(electronMock.overlayWindow.setBounds).toHaveBeenCalledWith(electronMock.virtualBounds);
     expect(result).toEqual({
       x: 2020,
       y: 140,
-      displayChanged: false,
       displayId: 2,
-      displaySize: { width: 3200, height: 1080 },
+      displaySize: { width: 1280, height: 1024 },
     });
+  });
+
+  it("serves the full-resolution capture image over IPC", () => {
+    const screenshotService = {
+      getCaptureImage: vi.fn(() => Buffer.from("full-res-png")),
+    };
+    registerCoreIpc({ ...createDeps(), screenshotService } as never);
+
+    const result = electronMock.handlers.get(ipcChannels.screenshotGetCaptureImage)?.({ sender: {} }, "capture-1");
+
+    expect(screenshotService.getCaptureImage).toHaveBeenCalledWith("capture-1");
+    expect(result).toEqual(Buffer.from("full-res-png"));
   });
 
   it("returns the selected directory from the native folder picker", async () => {
