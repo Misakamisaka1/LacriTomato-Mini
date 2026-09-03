@@ -75,6 +75,7 @@ const api = {
   pet: {
     moveBy: vi.fn(),
     syncBodySize: vi.fn(),
+    savePosition: vi.fn(),
     showBubbleLayer: vi.fn(),
     hideBubbleLayer: vi.fn(),
     showMenuLayer: vi.fn(),

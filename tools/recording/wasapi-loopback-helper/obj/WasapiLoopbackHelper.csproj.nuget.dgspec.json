@@ -1,20 +1,20 @@
 {
   "format": 1,
   "restore": {
-    "C:\\Users\\HONOR\\Desktop\\lacritomato-mini-petdex\\tools\\recording\\wasapi-loopback-helper\\WasapiLoopbackHelper.csproj": {}
+    "C:\\Users\\Lenovo\\Desktop\\lacri-tomato-mini\\tools\\recording\\wasapi-loopback-helper\\WasapiLoopbackHelper.csproj": {}
   },
   "projects": {
-    "C:\\Users\\HONOR\\Desktop\\lacritomato-mini-petdex\\tools\\recording\\wasapi-loopback-helper\\WasapiLoopbackHelper.csproj": {
+    "C:\\Users\\Lenovo\\Desktop\\lacri-tomato-mini\\tools\\recording\\wasapi-loopback-helper\\WasapiLoopbackHelper.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "C:\\Users\\HONOR\\Desktop\\lacritomato-mini-petdex\\tools\\recording\\wasapi-loopback-helper\\WasapiLoopbackHelper.csproj",
+        "projectUniqueName": "C:\\Users\\Lenovo\\Desktop\\lacri-tomato-mini\\tools\\recording\\wasapi-loopback-helper\\WasapiLoopbackHelper.csproj",
         "projectName": "wasapi-loopback-helper",
-        "projectPath": "C:\\Users\\HONOR\\Desktop\\lacritomato-mini-petdex\\tools\\recording\\wasapi-loopback-helper\\WasapiLoopbackHelper.csproj",
-        "packagesPath": "C:\\Users\\HONOR\\Desktop\\lacritomato-mini-petdex\\.nuget\\packages",
-        "outputPath": "C:\\Users\\HONOR\\Desktop\\lacritomato-mini-petdex\\tools\\recording\\wasapi-loopback-helper\\obj\\",
+        "projectPath": "C:\\Users\\Lenovo\\Desktop\\lacri-tomato-mini\\tools\\recording\\wasapi-loopback-helper\\WasapiLoopbackHelper.csproj",
+        "packagesPath": "C:\\Users\\Lenovo\\Desktop\\lacri-tomato-mini\\.nuget\\packages",
+        "outputPath": "C:\\Users\\Lenovo\\Desktop\\lacri-tomato-mini\\tools\\recording\\wasapi-loopback-helper\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
-          "C:\\Users\\HONOR\\Desktop\\lacritomato-mini-petdex\\NuGet.Config"
+          "C:\\Users\\Lenovo\\Desktop\\lacri-tomato-mini\\NuGet.Config"
         ],
         "originalTargetFrameworks": [
           "net8.0-windows"
@@ -38,7 +38,7 @@
           "auditLevel": "low",
           "auditMode": "direct"
         },
-        "SdkAnalysisLevel": "10.0.200"
+        "SdkAnalysisLevel": "9.0.200"
       },
       "frameworks": {
         "net8.0-windows7.0": {
@@ -47,7 +47,7 @@
             "Microsoft.NET.ILLink.Tasks": {
               "suppressParent": "All",
               "target": "Package",
-              "version": "[8.0.25, )",
+              "version": "[8.0.13, )",
               "autoReferenced": true
             },
             "NAudio": {
@@ -69,15 +69,15 @@
           "downloadDependencies": [
             {
               "name": "Microsoft.AspNetCore.App.Runtime.win-x64",
-              "version": "[8.0.25, 8.0.25]"
+              "version": "[8.0.13, 8.0.13]"
             },
             {
               "name": "Microsoft.NETCore.App.Runtime.win-x64",
-              "version": "[8.0.25, 8.0.25]"
+              "version": "[8.0.13, 8.0.13]"
             },
             {
               "name": "Microsoft.WindowsDesktop.App.Runtime.win-x64",
-              "version": "[8.0.25, 8.0.25]"
+              "version": "[8.0.13, 8.0.13]"
             }
           ],
           "frameworkReferences": {
@@ -85,7 +85,7 @@
               "privateAssets": "all"
             }
           },
-          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.201/PortableRuntimeIdentifierGraph.json"
+          "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.200/PortableRuntimeIdentifierGraph.json"
         }
       },
       "runtimes": {

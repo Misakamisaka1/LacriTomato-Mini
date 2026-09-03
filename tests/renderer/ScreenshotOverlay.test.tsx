@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ScreenshotOverlay } from "../../src/plugins/screenshot/renderer/ScreenshotOverlay";
 
@@ -22,11 +22,24 @@ const screenshotApi = {
   ocrCapture: vi.fn().mockResolvedValue({ text: "识别文本", confidence: 91 }),
   pinCapture: vi.fn().mockResolvedValue(undefined),
   getCapture: vi.fn(),
+  getCaptureImage: vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3])),
+  getBackground: vi.fn().mockResolvedValue({
+    width: 1024,
+    height: 768,
+    dataUrl: "data:image/png;base64,ZmFrZQ==",
+  }),
   listWindowTargets: vi.fn().mockResolvedValue([]),
   getCursorPoint: vi.fn(),
+  reportSession: vi.fn().mockResolvedValue(undefined),
+  onSessionUpdate: vi.fn((_callback: (state: unknown) => void) => () => undefined),
+  onCursorUpdate: vi.fn((_callback: (update: unknown) => void) => () => undefined),
   showTip: vi.fn().mockResolvedValue(undefined),
   closeOverlay: vi.fn().mockResolvedValue(undefined),
 };
+
+function cursorCallback() {
+  return screenshotApi.onCursorUpdate.mock.calls[0]?.[0] as (update: { x: number; y: number; activeOverlayId?: number }) => void;
+}
 
 async function lockSelection(container: HTMLElement) {
   const overlay = container.querySelector(".screenshot-overlay") as HTMLElement;
@@ -97,6 +110,24 @@ describe("ScreenshotOverlay", () => {
     expect(selection?.style.height).toBe(`${window.innerHeight}px`);
   });
 
+  it("follows cursor updates pushed by the main process and snaps to windows", async () => {
+    screenshotApi.listWindowTargets.mockResolvedValueOnce([
+      { id: "window-1", title: "编辑器", x: 120, y: 90, width: 420, height: 280 },
+    ]);
+    const { container } = render(<ScreenshotOverlay />);
+
+    await waitFor(() => expect(screenshotApi.listWindowTargets).toHaveBeenCalledTimes(1));
+    act(() => {
+      cursorCallback()({ x: 160, y: 120, activeOverlayId: 0 });
+    });
+
+    const selection = container.querySelector(".screenshot-selection") as HTMLElement;
+    expect(selection.style.left).toBe("120px");
+    expect(selection.style.top).toBe("90px");
+    expect(selection.style.width).toBe("420px");
+    expect(selection.style.height).toBe("280px");
+  });
+
   it("snaps the selection to a hovered application window and confirms it directly", async () => {
     screenshotApi.listWindowTargets.mockResolvedValueOnce([
       { id: "window-1", title: "编辑器", x: 120, y: 90, width: 420, height: 280 },
@@ -126,37 +157,34 @@ describe("ScreenshotOverlay", () => {
     expect(screen.queryByLabelText("截图结果")).toBeNull();
   });
 
-  it("uses the first display target as the initial fullscreen selection when displays are reported", async () => {
+  it("uses the shared session as the initial selection, falling back to the overlay's own display", async () => {
     screenshotApi.listWindowTargets.mockResolvedValueOnce([
-      { id: "display-1", title: "显示器 1", x: 0, y: 0, width: 1920, height: 1080 },
-      { id: "display-2", title: "显示器 2", x: 1920, y: 0, width: 1280, height: 1024 },
+      { id: "display-1", title: "显示器", x: 0, y: 0, width: 1920, height: 1080 },
     ]);
-    const { container } = render(<ScreenshotOverlay />);
-
-    await waitFor(() => expect(screenshotApi.listWindowTargets).toHaveBeenCalledTimes(1));
-    await waitFor(() => {
-      const selection = container.querySelector(".screenshot-selection") as HTMLElement;
-      expect(selection.style.width).toBe("1920px");
-      expect(selection.style.height).toBe("1080px");
-    });
-  });
-
-  it("snaps in virtual desktop coordinates without resetting to the cursor display", async () => {
-    screenshotApi.listWindowTargets.mockResolvedValueOnce([
-      { id: "display-1", title: "显示器 1", x: 0, y: 0, width: 1920, height: 1080 },
-      { id: "display-2", title: "显示器 2", x: 1920, y: 0, width: 1280, height: 1024 },
-    ]);
-    screenshotApi.getCursorPoint.mockResolvedValue({
-      x: 2000,
-      y: 120,
-      displayChanged: false,
-      displayId: 2,
-      displaySize: { width: 3200, height: 1080 },
+    let sessionCallback: ((state: unknown) => void) | undefined;
+    screenshotApi.onSessionUpdate.mockImplementation((callback: (state: unknown) => void) => {
+      sessionCallback = callback;
+      return () => undefined;
     });
     const { container } = render(<ScreenshotOverlay />);
 
+    // Before any session arrives the overlay defaults to its own fullscreen rect.
     await waitFor(() => expect(screenshotApi.listWindowTargets).toHaveBeenCalledTimes(1));
-    await waitFor(() => expect(screenshotApi.getCursorPoint).toHaveBeenCalled());
+    expect((container.querySelector(".screenshot-selection") as HTMLElement | null)?.style.width).toBe("1024px");
+
+    // A session broadcast (e.g. the display under the cursor) replaces it.
+    sessionCallback?.({
+      version: 1,
+      union: { x: 0, y: 0, width: 3200, height: 1080 },
+      selection: { x: 1920, y: 0, width: 1280, height: 1024 },
+      selectionLocked: false,
+      annotationColor: "#ff4d4f",
+      textFontSize: 22,
+      annotations: [],
+      redoAnnotations: [],
+      status: "",
+    });
+
     await waitFor(() => {
       const selection = container.querySelector(".screenshot-selection") as HTMLElement;
       expect(selection.style.left).toBe("1920px");
@@ -166,106 +194,84 @@ describe("ScreenshotOverlay", () => {
     });
   });
 
-  it("keeps application window snapping after the cursor moves between displays", async () => {
-    const firstScreenWindow = { id: "window-1", title: "编辑器", x: 120, y: 90, width: 420, height: 280 };
-    const secondScreenWindow = { id: "window-2", title: "浏览器", x: 1980, y: 50, width: 300, height: 220 };
-    screenshotApi.listWindowTargets.mockResolvedValueOnce([
-      firstScreenWindow,
-      secondScreenWindow,
-      { id: "display-1", title: "显示器 1", x: 0, y: 0, width: 1920, height: 1080 },
-      { id: "display-2", title: "显示器 2", x: 1920, y: 0, width: 1280, height: 1024 },
-    ]);
-    screenshotApi.getCursorPoint.mockResolvedValue({
-      x: 2000,
-      y: 80,
-      displayChanged: false,
-      displayId: 2,
-      displaySize: { width: 3200, height: 1080 },
-    });
-    const { container } = render(<ScreenshotOverlay />);
-    const overlay = container.querySelector(".screenshot-overlay") as HTMLElement;
-
-    await waitFor(() => expect(screenshotApi.listWindowTargets).toHaveBeenCalledTimes(1));
-    await waitFor(() => {
-      const selection = container.querySelector(".screenshot-selection") as HTMLElement;
-      expect(selection.style.left).toBe("1980px");
-      expect(selection.style.top).toBe("50px");
-      expect(selection.style.width).toBe("300px");
-      expect(selection.style.height).toBe("220px");
-    });
-
-    fireEvent.mouseMove(overlay, { clientX: 160, clientY: 120 });
-
-    await waitFor(() => {
-      const selection = container.querySelector(".screenshot-selection") as HTMLElement;
-      expect(selection.style.left).toBe("120px");
-      expect(selection.style.top).toBe("90px");
-      expect(selection.style.width).toBe("420px");
-      expect(selection.style.height).toBe("280px");
-    });
-    expect(screenshotApi.listWindowTargets).toHaveBeenCalledTimes(1);
-  });
-  it("moves a locked selection onto another display while dragging it", async () => {
-    Object.defineProperty(window, "innerWidth", { configurable: true, value: 3200 });
-    Object.defineProperty(window, "innerHeight", { configurable: true, value: 1080 });
-    const { container } = render(<ScreenshotOverlay />);
-    const overlay = await lockSelection(container);
-    const selection = container.querySelector(".screenshot-selection") as HTMLElement;
-
-    fireEvent.mouseDown(selection, { clientX: 30, clientY: 40 });
-    fireEvent.mouseMove(overlay, { clientX: 2140, clientY: 160 });
-
-    await waitFor(() => {
-      expect(selection.style.left).toBe("2120px");
-      expect(selection.style.top).toBe("140px");
-      expect(selection.style.width).toBe("70px");
-      expect(selection.style.height).toBe("80px");
-    });
-  });
-
-  it("keeps the toolbar inside the chosen display for cross-display selections", async () => {
-    Object.defineProperty(window, "innerWidth", { configurable: true, value: 3200 });
+  it("positions the toolbar within the overlay bounds for large selections", async () => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1920 });
     Object.defineProperty(window, "innerHeight", { configurable: true, value: 1080 });
     screenshotApi.listWindowTargets.mockResolvedValueOnce([
-      { id: "display-1", title: "显示器 1", x: 0, y: 0, width: 1920, height: 1080 },
-      { id: "display-2", title: "显示器 2", x: 1920, y: 0, width: 1280, height: 1024 },
+      { id: "display-1", title: "显示器", x: 0, y: 0, width: 1920, height: 1080 },
     ]);
     const { container } = render(<ScreenshotOverlay />);
     const overlay = container.querySelector(".screenshot-overlay") as HTMLElement;
 
     await waitFor(() => expect(screenshotApi.listWindowTargets).toHaveBeenCalledTimes(1));
     fireEvent.mouseDown(overlay, { clientX: 20, clientY: 120 });
-    fireEvent.mouseMove(overlay, { clientX: 3100, clientY: 960 });
-    fireEvent.mouseUp(overlay, { clientX: 3100, clientY: 960 });
+    fireEvent.mouseMove(overlay, { clientX: 1800, clientY: 960 });
+    fireEvent.mouseUp(overlay, { clientX: 1800, clientY: 960 });
 
     const toolbar = screen.getByRole("toolbar", { name: "截图工具栏" });
     await waitFor(() => expect(toolbar.style.maxWidth).toBe("1896px"));
     expect(toolbar.style.bottom).toBe("auto");
-    expect(toolbar.style.top).toBe("1002px");
-    expect(Number.parseFloat(toolbar.style.left)).toBeLessThanOrEqual(1448);
+    // Toolbar should be below the selection
+    const top = Number.parseFloat(toolbar.style.top);
+    expect(top).toBeGreaterThan(960);
+    expect(top).toBeLessThanOrEqual(1080);
   });
 
-  it("keeps the status prompt inside the chosen display for cross-display selections", async () => {
-    Object.defineProperty(window, "innerWidth", { configurable: true, value: 3200 });
+  it("flips the status hint above the selection instead of stacking it on the toolbar", async () => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1920 });
     Object.defineProperty(window, "innerHeight", { configurable: true, value: 1080 });
     screenshotApi.listWindowTargets.mockResolvedValueOnce([
-      { id: "display-1", title: "显示器 1", x: 0, y: 0, width: 1920, height: 1080 },
-      { id: "display-2", title: "显示器 2", x: 1920, y: 0, width: 1280, height: 1024 },
+      { id: "display-1", title: "显示器", x: 0, y: 0, width: 1920, height: 1080 },
     ]);
     const { container } = render(<ScreenshotOverlay />);
     const overlay = container.querySelector(".screenshot-overlay") as HTMLElement;
 
+    // Selection bottom at y=975: room below for the toolbar, but not the status.
     await waitFor(() => expect(screenshotApi.listWindowTargets).toHaveBeenCalledTimes(1));
-    fireEvent.mouseDown(overlay, { clientX: 20, clientY: 120 });
-    fireEvent.mouseMove(overlay, { clientX: 3100, clientY: 960 });
-    fireEvent.mouseUp(overlay, { clientX: 3100, clientY: 960 });
+    fireEvent.mouseDown(overlay, { clientX: 100, clientY: 100 });
+    fireEvent.mouseMove(overlay, { clientX: 800, clientY: 975 });
+    fireEvent.mouseUp(overlay, { clientX: 800, clientY: 975 });
 
-    const status = screen.getByRole("status");
-    await waitFor(() => expect(status.style.maxWidth).toBe("1896px"));
-    expect(status.style.bottom).toBe("auto");
-    expect(status.style.top).toBe("954px");
-    expect(Number.parseFloat(status.style.left)).toBeLessThanOrEqual(1460);
+    const toolbar = screen.getByRole("toolbar", { name: "截图工具栏" });
+    const status = await screen.findByRole("status");
+    const toolbarTop = Number.parseFloat(toolbar.style.top);
+    const statusTop = Number.parseFloat(status.style.top);
+
+    // The old layout anchored both bars to the selection bottom edge, so they
+    // shared the same top and the status covered the toolbar. Now the status
+    // must sit above the selection, clear of the toolbar.
+    expect(statusTop).not.toBe(toolbarTop);
+    expect(toolbarTop).toBeGreaterThan(975);
+    expect(statusTop + 38).toBeLessThanOrEqual(toolbarTop);
   });
+
+  it("stacks the status above the toolbar with a gap when the selection fills the screen bottom", async () => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1920 });
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 1080 });
+    screenshotApi.listWindowTargets.mockResolvedValueOnce([
+      { id: "display-1", title: "显示器", x: 0, y: 0, width: 1920, height: 1080 },
+    ]);
+    const { container } = render(<ScreenshotOverlay />);
+    const overlay = container.querySelector(".screenshot-overlay") as HTMLElement;
+
+    // Selection hugs the screen bottom (y 1000..1070): no room below for
+    // anything, so both bars go above the selection.
+    await waitFor(() => expect(screenshotApi.listWindowTargets).toHaveBeenCalledTimes(1));
+    fireEvent.mouseDown(overlay, { clientX: 100, clientY: 1000 });
+    fireEvent.mouseMove(overlay, { clientX: 800, clientY: 1070 });
+    fireEvent.mouseUp(overlay, { clientX: 800, clientY: 1070 });
+
+    const toolbar = screen.getByRole("toolbar", { name: "截图工具栏" });
+    const status = await screen.findByRole("status");
+    const toolbarTop = Number.parseFloat(toolbar.style.top);
+    const statusTop = Number.parseFloat(status.style.top);
+
+    expect(toolbarTop).toBeLessThan(1000);
+    expect(statusTop).toBeLessThan(toolbarTop);
+    // Gap between the status bottom and the toolbar top.
+    expect(statusTop + 38 + 10).toBeLessThanOrEqual(toolbarTop);
+  });
+
   it("closes the overlay when right-clicking during screenshot selection", async () => {
     const { container } = render(<ScreenshotOverlay />);
     const overlay = container.querySelector(".screenshot-overlay") as HTMLElement;
@@ -293,6 +299,7 @@ describe("ScreenshotOverlay", () => {
     });
     expect(screen.queryByLabelText("截图标注层")).toBeNull();
   });
+
   it("keeps the selected area adjustable until the user confirms capture", async () => {
     const { container } = render(<ScreenshotOverlay />);
     const overlay = await lockSelection(container);
@@ -493,6 +500,116 @@ describe("ScreenshotOverlay", () => {
     expect(screenshotApi.saveCapture).toHaveBeenCalledWith("capture-1");
   });
 
+  it("confirms with Enter and copies with Ctrl+C from the locked selection", async () => {
+    const { container } = render(<ScreenshotOverlay />);
+    await lockSelection(container);
+
+    fireEvent.keyDown(window, { key: "Enter" });
+    await waitFor(() => expect(screenshotApi.captureSelection).toHaveBeenCalledWith(
+      { x: 10, y: 20, width: 70, height: 80 },
+      { restoreOverlay: false },
+    ));
+    await waitFor(() => expect(screenshotApi.closeOverlay).toHaveBeenCalledTimes(1));
+  });
+
+  it("copies the locked selection with Ctrl+C without closing the overlay", async () => {
+    const { container } = render(<ScreenshotOverlay />);
+    await lockSelection(container);
+
+    fireEvent.keyDown(window, { key: "c", ctrlKey: true });
+
+    await waitFor(() => expect(screenshotApi.copyCapture).toHaveBeenCalledWith("capture-1"));
+    expect(screenshotApi.closeOverlay).not.toHaveBeenCalled();
+  });
+
+  it("nudges the locked selection with arrow keys", async () => {
+    const { container } = render(<ScreenshotOverlay />);
+    await lockSelection(container);
+    const selection = container.querySelector(".screenshot-selection") as HTMLElement;
+
+    fireEvent.keyDown(window, { key: "ArrowRight" });
+    fireEvent.keyDown(window, { key: "ArrowDown" });
+    expect(selection.style.left).toBe("11px");
+    expect(selection.style.top).toBe("21px");
+
+    fireEvent.keyDown(window, { key: "ArrowRight", shiftKey: true });
+    expect(selection.style.left).toBe("21px");
+  });
+
+  it("double-clicking a locked selection captures it directly", async () => {
+    const { container } = render(<ScreenshotOverlay />);
+    await lockSelection(container);
+    const selection = container.querySelector(".screenshot-selection") as HTMLElement;
+
+    fireEvent.doubleClick(selection);
+
+    await waitFor(() => expect(screenshotApi.captureSelection).toHaveBeenCalledWith(
+      { x: 10, y: 20, width: 70, height: 80 },
+      { restoreOverlay: false },
+    ));
+    await waitFor(() => expect(screenshotApi.closeOverlay).toHaveBeenCalledTimes(1));
+  });
+
+  it("shows the magnifier while dragging a new selection", async () => {
+    const { container } = render(<ScreenshotOverlay />);
+    const overlay = container.querySelector(".screenshot-overlay") as HTMLElement;
+
+    await waitFor(() => expect(screenshotApi.listWindowTargets).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screenshotApi.getBackground).toHaveBeenCalledWith(0));
+    fireEvent.mouseDown(overlay, { clientX: 10, clientY: 20 });
+    fireEvent.mouseMove(overlay, { clientX: 80, clientY: 100 });
+
+    await waitFor(() => expect(container.querySelector(".screenshot-loupe")).toBeTruthy());
+    fireEvent.mouseUp(overlay, { clientX: 80, clientY: 100 });
+    expect(container.querySelector(".screenshot-loupe")).toBeNull();
+  });
+
+  it("selects, moves, and deletes an existing annotation", async () => {
+    const { container } = render(<ScreenshotOverlay />);
+    await lockSelection(container);
+    const drawingSurface = await screen.findByLabelText("截图绘制层");
+
+    fireEvent.click(screen.getByRole("button", { name: "矩形标注" }));
+    fireEvent.mouseDown(drawingSurface, { clientX: 12, clientY: 14 });
+    fireEvent.mouseMove(drawingSurface, { clientX: 42, clientY: 54 });
+    fireEvent.mouseUp(drawingSurface, { clientX: 42, clientY: 54 });
+    expect(await screen.findByLabelText("截图标注层")).toBeTruthy();
+
+    // Deselect the rect tool by clicking it again (aria-pressed toggles off),
+    // then grab the annotation without a tool selected.
+    fireEvent.click(screen.getByRole("button", { name: "矩形标注" }));
+    fireEvent.mouseDown(drawingSurface, { clientX: 20, clientY: 24 });
+    fireEvent.mouseMove(drawingSurface, { clientX: 40, clientY: 44 });
+    fireEvent.mouseUp(drawingSurface, { clientX: 40, clientY: 44 });
+
+    const selectionBox = container.querySelector(".screenshot-annotation-selection") as HTMLElement;
+    expect(selectionBox).toBeTruthy();
+    expect(selectionBox.style.left).not.toBe("0%");
+
+    fireEvent.keyDown(window, { key: "Delete" });
+    expect(screen.queryByLabelText("截图标注层")).toBeNull();
+  });
+
+  it("draws highlight and blur annotations", async () => {
+    const { container } = render(<ScreenshotOverlay />);
+    await lockSelection(container);
+    const drawingSurface = await screen.findByLabelText("截图绘制层");
+
+    fireEvent.click(screen.getByRole("button", { name: "高亮标注" }));
+    fireEvent.mouseDown(drawingSurface, { clientX: 12, clientY: 14 });
+    fireEvent.mouseMove(drawingSurface, { clientX: 42, clientY: 54 });
+    fireEvent.mouseUp(drawingSurface, { clientX: 42, clientY: 54 });
+    expect(await screen.findByLabelText("截图标注层")).toBeTruthy();
+    expect(screen.getByLabelText("截图标注层").querySelector("rect")?.getAttribute("fill-opacity")).toBe("0.3");
+
+    fireEvent.click(screen.getByRole("button", { name: "模糊标注" }));
+    fireEvent.mouseDown(drawingSurface, { clientX: 60, clientY: 70 });
+    fireEvent.mouseMove(drawingSurface, { clientX: 80, clientY: 90 });
+    fireEvent.mouseUp(drawingSurface, { clientX: 80, clientY: 90 });
+    const annotationLayer = screen.getByLabelText("截图标注层");
+    expect(annotationLayer.querySelector(".screenshot-blur-stroke")).toBeTruthy();
+  });
+
   it("supports redo and clearing annotations", async () => {
     const { container } = render(<ScreenshotOverlay />);
     await lockSelection(container);
@@ -514,6 +631,3 @@ describe("ScreenshotOverlay", () => {
     expect(screen.queryByLabelText("截图标注层")).toBeNull();
   });
 });
-
-
-

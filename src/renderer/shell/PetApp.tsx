@@ -556,6 +556,8 @@ export function PetApp() {
     setDragging(false);
     setDragAnimation(undefined);
     event.currentTarget.releasePointerCapture?.(event.pointerId);
+    const savePositionPromise = window.petdex?.pet?.savePosition?.();
+    void savePositionPromise?.catch(() => undefined);
   }
 
   const safeFrame = Math.min(frame, currentAnimation.frames.length - 1);

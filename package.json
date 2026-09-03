@@ -32,7 +32,7 @@
     "@types/node": "^22.0.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "electron": "^36.0.0",
+    "electron": "^43.4.0",
     "electron-builder": "^26.0.0",
     "jsdom": "^26.0.0",
     "typescript": "^5.8.0",

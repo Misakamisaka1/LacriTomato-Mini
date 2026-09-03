@@ -13,7 +13,42 @@ export function PinnedImageView() {
   const [contextMenuOpen, setContextMenuOpen] = useState(false);
   const [zoomed, setZoomed] = useState(false);
   const [previewing, setPreviewing] = useState(false);
+  // Full-resolution blob URL, loaded on demand when the pinned image is
+  // zoomed/previewed so the preview thumbnail is not scaled up.
+  const [fullResUrl, setFullResUrl] = useState<string | undefined>();
+  const fullResLoadedRef = useRef(false);
   const dragPoint = useRef<{ x: number; y: number } | undefined>(undefined);
+
+  useEffect(() => {
+    return () => {
+      if (fullResUrl) {
+        URL.revokeObjectURL(fullResUrl);
+      }
+    };
+  }, [fullResUrl]);
+
+  async function loadFullResolution() {
+    if (fullResLoadedRef.current || !captureId) {
+      return;
+    }
+
+    const api = window.petdex?.screenshot;
+    if (!api?.getCaptureImage) {
+      return;
+    }
+
+    try {
+      const bytes = await api.getCaptureImage(captureId);
+      if (bytes.byteLength === 0) {
+        return;
+      }
+
+      setFullResUrl(URL.createObjectURL(new Blob([bytes], { type: "image/png" })));
+      fullResLoadedRef.current = true;
+    } catch {
+      // Keep the preview thumbnail when the full-resolution fetch fails.
+    }
+  }
 
   useEffect(() => {
     const nextCaptureId = new URLSearchParams(window.location.search).get("captureId") ?? "";
@@ -92,12 +127,16 @@ export function PinnedImageView() {
       return;
     }
 
+    void loadFullResolution();
     const result = await window.petdex?.windowControls.togglePinnedImageZoom?.();
     setZoomed(result?.zoomed ?? !zoomed);
   }
 
   async function setPreviewMode(nextPreviewing: boolean) {
     stopDrag();
+    if (nextPreviewing) {
+      void loadFullResolution();
+    }
     const result = await window.petdex?.windowControls.setPinnedImagePreview?.(nextPreviewing);
     setPreviewing(result?.previewing ?? nextPreviewing);
   }
@@ -153,7 +192,7 @@ export function PinnedImageView() {
           onMouseLeave={stopDrag}
           onContextMenu={openContextMenu}
         >
-          <img src={capture.dataUrl} alt="桌面贴图" draggable={false} style={{ opacity: imageOpacity }} />
+          <img src={fullResUrl ?? capture.dataUrl} alt="桌面贴图" draggable={false} style={{ opacity: imageOpacity }} />
           {previewing && (
             <div className="pinned-image-preview-topbar" onMouseDown={stopControlEvent} onDoubleClick={stopControlEvent}>
               <button

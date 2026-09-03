@@ -10,7 +10,11 @@ import type {
   ScreenshotOcrResult,
   ScreenshotSaveResult,
   ScreenshotCursorPoint,
+  ScreenshotCursorSession,
+  ScreenshotCursorUpdate,
   ScreenshotSelection,
+  ScreenshotSessionState,
+  ScreenshotSessionUpdate,
   ScreenshotWindowTarget,
 } from "../plugins/screenshot/workflow.js";
 import type { ModelConnectionResult } from "../main/services/modelService.js";
@@ -62,6 +66,7 @@ export interface PetdexApi {
   pet?: {
     moveBy(deltaX: number, deltaY: number): Promise<void>;
     syncBodySize(width: number, height: number): Promise<void>;
+    savePosition(): Promise<void>;
     showBubbleLayer(bubble: PetBubble): Promise<void>;
     hideBubbleLayer(): Promise<void>;
     showMenuLayer(items: PluginMenuItem[]): Promise<void>;
@@ -91,8 +96,13 @@ export interface PetdexApi {
     ocrCapture(captureId: string): Promise<ScreenshotOcrResult>;
     pinCapture(captureId: string): Promise<void>;
     getCapture(captureId: string): Promise<ScreenshotCaptureResult | undefined>;
+    getCaptureImage?(captureId: string): Promise<ArrayBuffer>;
+    getBackground?(displayId: number): Promise<{ width: number; height: number; dataUrl: string } | undefined>;
     listWindowTargets(): Promise<ScreenshotWindowTarget[]>;
-    getCursorPoint(): Promise<ScreenshotCursorPoint>;
+    getCursorPoint(): Promise<ScreenshotCursorSession>;
+    reportSession(state: ScreenshotSessionUpdate): Promise<void>;
+    onSessionUpdate?(callback: (state: ScreenshotSessionUpdate) => void): () => void;
+    onCursorUpdate?(callback: (update: ScreenshotCursorUpdate) => void): () => void;
     showTip(message: string): Promise<void>;
     closeOverlay(): Promise<void>;
   };

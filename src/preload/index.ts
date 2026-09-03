@@ -4,6 +4,7 @@ import type { AppConfig } from "../shared/configSchema.js";
 import type { PetEmotionPayload } from "../shared/petBehavior.js";
 import type { PetSkinLoadResult } from "../shared/petManifest.js";
 import type { RecordingState } from "../plugins/recording/types.js";
+import type { ScreenshotCursorUpdate, ScreenshotSessionState, ScreenshotSessionUpdate } from "../plugins/screenshot/workflow.js";
 import { ipcChannels } from "../shared/ipcChannels.js";
 import type { PetdexApi } from "./api.js";
 
@@ -50,6 +51,7 @@ const api: PetdexApi = {
   pet: {
     moveBy: (deltaX, deltaY) => ipcRenderer.invoke(ipcChannels.petMoveBy, { deltaX, deltaY }),
     syncBodySize: (width, height) => ipcRenderer.invoke(ipcChannels.petSyncBodySize, { width, height }),
+    savePosition: () => ipcRenderer.invoke(ipcChannels.petSavePosition),
     showBubbleLayer: (bubble) => ipcRenderer.invoke(ipcChannels.petShowBubbleLayer, bubble),
     hideBubbleLayer: () => ipcRenderer.invoke(ipcChannels.petHideBubbleLayer),
     showMenuLayer: (items) => ipcRenderer.invoke(ipcChannels.petShowMenuLayer, { items }),
@@ -117,8 +119,21 @@ const api: PetdexApi = {
     ocrCapture: (captureId) => ipcRenderer.invoke(ipcChannels.screenshotOcrCapture, captureId),
     pinCapture: (captureId) => ipcRenderer.invoke(ipcChannels.screenshotPinCapture, captureId),
     getCapture: (captureId) => ipcRenderer.invoke(ipcChannels.screenshotGetCapture, captureId),
+    getCaptureImage: (captureId) => ipcRenderer.invoke(ipcChannels.screenshotGetCaptureImage, captureId),
+    getBackground: (displayId) => ipcRenderer.invoke(ipcChannels.screenshotGetBackground, displayId),
     listWindowTargets: () => ipcRenderer.invoke(ipcChannels.screenshotListWindowTargets),
     getCursorPoint: () => ipcRenderer.invoke(ipcChannels.screenshotGetCursorPoint),
+    reportSession: (state) => ipcRenderer.invoke(ipcChannels.screenshotSessionReport, state),
+    onSessionUpdate: (callback) => {
+      const listener = (_event: IpcRendererEvent, state: ScreenshotSessionState | ScreenshotSessionUpdate) => callback(state);
+      ipcRenderer.on(ipcChannels.screenshotSessionUpdate, listener);
+      return () => ipcRenderer.removeListener(ipcChannels.screenshotSessionUpdate, listener);
+    },
+    onCursorUpdate: (callback) => {
+      const listener = (_event: IpcRendererEvent, update: ScreenshotCursorUpdate) => callback(update);
+      ipcRenderer.on(ipcChannels.screenshotCursorUpdate, listener);
+      return () => ipcRenderer.removeListener(ipcChannels.screenshotCursorUpdate, listener);
+    },
     showTip: (message) => ipcRenderer.invoke(ipcChannels.screenshotShowTip, message),
     closeOverlay: () => ipcRenderer.invoke(ipcChannels.screenshotCloseOverlay),
   },

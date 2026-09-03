@@ -1,4 +1,4 @@
-import { BrowserWindow, dialog, ipcMain, screen, type Display, type OpenDialogOptions, type Rectangle } from "electron";
+import { BrowserWindow, dialog, ipcMain, screen, type OpenDialogOptions } from "electron";
 import type { ChatMessage, ChatRequest, ChatSendRequest } from "../../plugins/chat/types.js";
 import { findChatPersonalityTemplate, findChatPromptTemplate } from "../../plugins/chat/templates.js";
 import type { TranslateRequest } from "../../plugins/translator/types.js";
@@ -6,13 +6,14 @@ import type { AppConfig } from "../../shared/configSchema.js";
 import { ipcChannels } from "../../shared/ipcChannels.js";
 import type { PetBubble, PetEmotion } from "../../shared/petBehavior.js";
 import type { PluginMenuItem } from "../../shared/pluginTypes.js";
-import type { ScreenshotCaptureOptions, ScreenshotSelection } from "../../plugins/screenshot/workflow.js";
+import type { ScreenshotCaptureOptions, ScreenshotSelection, ScreenshotSessionUpdate } from "../../plugins/screenshot/workflow.js";
 import type { ChatStateService } from "../services/chatStateService.js";
 import type { ConfigService } from "../services/configService.js";
 import type { ModelProviderConfig, ModelService } from "../services/modelService.js";
 import type { OcrService } from "../services/ocrService.js";
 import type { PluginRegistry } from "../services/pluginRegistry.js";
 import type { PetSkinService } from "../services/petSkinService.js";
+import type { PetPositionService } from "../services/petPositionService.js";
 import { setPinnedImageFullscreenPreview } from "../services/pinnedImagePreview.js";
 import { togglePinnedImageZoom } from "../services/pinnedImageZoom.js";
 import type { ScreenshotService } from "../services/screenshotService.js";
@@ -48,23 +49,11 @@ export interface CoreIpcDependencies {
   pinCapture?(captureId: string): void;
   showScreenshotTip?(message: string): void;
   replyToProactiveTopic?(topicId: string): void;
+  petWindow?: BrowserWindow;
+  petPositionService?: PetPositionService;
 }
 
 
-function getVirtualDesktopBounds(displays: Display[]): Rectangle {
-  const availableDisplays = displays.length > 0 ? displays : [screen.getPrimaryDisplay()];
-  const left = Math.min(...availableDisplays.map((display) => display.bounds.x));
-  const top = Math.min(...availableDisplays.map((display) => display.bounds.y));
-  const right = Math.max(...availableDisplays.map((display) => display.bounds.x + display.bounds.width));
-  const bottom = Math.max(...availableDisplays.map((display) => display.bounds.y + display.bounds.height));
-
-  return {
-    x: left,
-    y: top,
-    width: right - left,
-    height: bottom - top,
-  };
-}
 function readDialogDefaultPath(payload: unknown) {
   const value = payload && typeof payload === "object" && "defaultPath" in payload
     ? (payload as { defaultPath?: unknown }).defaultPath
@@ -273,6 +262,11 @@ export function registerCoreIpc(deps: CoreIpcDependencies): void {
   let menuLayerWindow: BrowserWindow | undefined;
   let activeMenuItemCount = 0;
   let activeBubbleHeight = 72;
+
+  // The last pet body size synced by the renderer. The pet window is moved with
+  // explicit bounds so repeated setPosition calls cannot inflate a Windows
+  // transparent window's size (DPI rounding accumulates on layered windows).
+  let petBodySizeCache: { width: number; height: number } | undefined;
 
   function isWindowDestroyed(window: BrowserWindow) {
     return typeof window.isDestroyed === "function" && window.isDestroyed();
@@ -531,7 +525,16 @@ export function registerCoreIpc(deps: CoreIpcDependencies): void {
     }
 
     const [x, y] = window.getPosition();
-    window.setPosition(x + deltaX, y + deltaY);
+    if (petBodySizeCache) {
+      window.setBounds({
+        x: x + deltaX,
+        y: y + deltaY,
+        width: petBodySizeCache.width,
+        height: petBodySizeCache.height,
+      });
+    } else {
+      window.setPosition(x + deltaX, y + deltaY);
+    }
     repositionPetLayers(window);
   });
   ipcMain.handle(ipcChannels.petSyncBodySize, (event, size: { width?: unknown; height?: unknown }) => {
@@ -543,8 +546,26 @@ export function registerCoreIpc(deps: CoreIpcDependencies): void {
       return;
     }
 
+    petBodySizeCache = { width, height };
     syncPetBodySize(window, width, height);
     repositionPetLayers(window);
+  });
+  ipcMain.handle(ipcChannels.petSavePosition, (event) => {
+    const window = BrowserWindow.fromWebContents(event.sender);
+
+    if (!window || !deps.petPositionService) {
+      return;
+    }
+
+    if (deps.petWindow && window !== deps.petWindow) {
+      return;
+    }
+
+    const bounds = window.getBounds();
+    deps.petPositionService.save({
+      x: Math.round(bounds.x + bounds.width / 2),
+      y: Math.round(bounds.y + bounds.height),
+    });
   });
   ipcMain.handle(ipcChannels.petShowBubbleLayer, (event, payload: unknown) => {
     const sourceWindow = BrowserWindow.fromWebContents(event.sender);
@@ -636,7 +657,10 @@ export function registerCoreIpc(deps: CoreIpcDependencies): void {
       throw new Error("截图服务未就绪");
     }
 
-    return deps.screenshotService.captureSelection(window, selection, options);
+    return deps.screenshotService.captureSelection(window, selection, {
+      ...options,
+      delayMs: deps.configService.getConfig().screenshot.captureDelayMs ?? 90,
+    });
   });
   ipcMain.handle(ipcChannels.screenshotUpdateCapture, (_event, captureId: string, dataUrl: string) => {
     if (!deps.screenshotService) {
@@ -667,45 +691,52 @@ export function registerCoreIpc(deps: CoreIpcDependencies): void {
     deps.pinCapture?.(captureId);
   });
   ipcMain.handle(ipcChannels.screenshotGetCapture, (_event, captureId: string) => deps.screenshotService?.getCapture(captureId));
-  ipcMain.handle(ipcChannels.screenshotListWindowTargets, (event) => {
-    const window = BrowserWindow.fromWebContents(event.sender);
-    if (!window || !deps.screenshotService) {
+  ipcMain.handle(ipcChannels.screenshotGetCaptureImage, (_event, captureId: string) => {
+    if (!deps.screenshotService) {
+      throw new Error("截图服务未就绪");
+    }
+
+    return deps.screenshotService.getCaptureImage(captureId);
+  });
+  ipcMain.handle(ipcChannels.screenshotGetBackground, (_event, displayId: number) => (
+    deps.screenshotService?.getBackground(Number(displayId))
+  ));
+  ipcMain.handle(ipcChannels.screenshotListWindowTargets, () => {
+    if (!deps.screenshotService) {
       return [];
     }
 
-    return deps.screenshotService.listWindowTargets(window);
+    return deps.screenshotService.listWindowTargets();
   });
   ipcMain.handle(ipcChannels.screenshotGetCursorPoint, (event) => {
-    const point = screen.getCursorScreenPoint();
-    const display = screen.getDisplayNearestPoint(point);
-    const bounds = getVirtualDesktopBounds(screen.getAllDisplays());
     const window = BrowserWindow.fromWebContents(event.sender);
-
-    if (window) {
-      const currentBounds = window.getBounds();
-      const boundsChanged = currentBounds.x !== bounds.x
-        || currentBounds.y !== bounds.y
-        || currentBounds.width !== bounds.width
-        || currentBounds.height !== bounds.height;
-
-      if (boundsChanged) {
-        window.setBounds(bounds);
-      }
+    if (!deps.screenshotService) {
+      const point = screen.getCursorScreenPoint();
+      const display = screen.getDisplayNearestPoint(point);
+      return {
+        x: point.x,
+        y: point.y,
+        displayId: display.id,
+        displaySize: {
+          width: display.bounds.width,
+          height: display.bounds.height,
+        },
+      };
     }
 
-    return {
-      x: point.x - bounds.x,
-      y: point.y - bounds.y,
-      displayChanged: false,
-      displayId: display.id,
-      displaySize: {
-        width: bounds.width,
-        height: bounds.height,
-      },
-    };
+    return deps.screenshotService.getCursorSession(window ?? undefined);
   });
-  ipcMain.handle(ipcChannels.screenshotCloseOverlay, (event) => {
-    BrowserWindow.fromWebContents(event.sender)?.close();
+  ipcMain.handle(ipcChannels.screenshotSessionReport, (event, update: ScreenshotSessionUpdate) => {
+    if (!deps.screenshotService) {
+      return;
+    }
+
+    deps.screenshotService.reportSession(update ?? {});
+  });
+  ipcMain.handle(ipcChannels.screenshotCloseOverlay, () => {
+    // Cancel the whole capture session: right-clicking (or pressing Esc) on any
+    // screen closes every overlay, not just the one under the cursor.
+    deps.screenshotService?.closeAllOverlays();
   });
   ipcMain.handle(ipcChannels.screenshotShowTip, (_event, message: unknown) => {
     const nextMessage = typeof message === "string" && message.trim() ? message.trim() : "截图已复制到剪贴板";
