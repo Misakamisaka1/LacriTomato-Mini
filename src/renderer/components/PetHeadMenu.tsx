@@ -1,9 +1,10 @@
 import type { CSSProperties } from "react";
-import { Languages, MessageCircle, Pin, ScanLine, ScanText, Settings, Video } from "lucide-react";
+import { Activity, Languages, MessageCircle, Pin, ScanLine, ScanText, Settings, Video } from "lucide-react";
 import type { PluginMenuItem } from "../../shared/pluginTypes";
 import "../shell/PetApp.css";
 
 const icons = {
+  Activity,
   Languages,
   MessageCircle,
   Pin,

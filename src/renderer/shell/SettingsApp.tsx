@@ -4,12 +4,26 @@ import type { AppConfig } from "../../shared/configSchema";
 import type { ManagedPetSkinResult, PetdexCatalogPet, PetdexCatalogResult, PetSkinLoadResult } from "../../shared/petManifest";
 import { defaultAppConfig } from "../../shared/configSchema";
 import type { PluginContributions, PluginShortcutContribution } from "../../shared/pluginTypes";
+import {
+  formatPetVitalsEffects,
+  petVitalsActionCatalog,
+  petVitalsActionIds,
+  petVitalsHudModeHints,
+  petVitalsHudModeLabels,
+  petVitalsHudModes,
+  petVitalsStatKeys,
+  petVitalsStatLabels,
+  type PetVitalsActionId,
+  type PetVitalsHudMode,
+  type PetVitalsSnapshot,
+  type PetVitalsStatusState,
+} from "../../shared/petVitals";
 import { captureShortcutAccelerator } from "../../shared/shortcutAccelerator";
 import "./SettingsApp.css";
 
-type SettingsSection = "model" | "shortcuts" | "translator" | "screenshot" | "ocr" | "pet" | "skinLibrary" | "managedSkins" | "plugins" | "chat" | "recording";
+type SettingsSection = "model" | "shortcuts" | "translator" | "screenshot" | "ocr" | "pet" | "vitals" | "skinLibrary" | "managedSkins" | "plugins" | "chat" | "recording";
 type ShortcutKey = keyof AppConfig["shortcuts"];
-type BooleanSection = Extract<SettingsSection, "screenshot" | "recording" | "ocr" | "pet" | "plugins">;
+type BooleanSection = Extract<SettingsSection, "screenshot" | "recording" | "ocr" | "pet" | "vitals" | "plugins">;
 
 const disconnectedMessage = "桌宠服务未连接，请重新启动应用。";
 const petdexPageSize = 24;
@@ -18,6 +32,7 @@ const coreSections: { id: SettingsSection; label: string }[] = [
   { id: "model", label: "模型" },
   { id: "shortcuts", label: "快捷键" },
   { id: "pet", label: "桌宠" },
+  { id: "vitals", label: "养成" },
   { id: "skinLibrary", label: "皮肤库" },
   { id: "managedSkins", label: "我的皮肤" },
   { id: "plugins", label: "插件" },
@@ -235,6 +250,9 @@ export function SettingsApp() {
   const [usingManagedSkinSlug, setUsingManagedSkinSlug] = useState("");
   const [deletingManagedSkinSlug, setDeletingManagedSkinSlug] = useState("");
   const [installingPetSlug, setInstallingPetSlug] = useState("");
+  const [vitals, setVitals] = useState<PetVitalsSnapshot | undefined>();
+  const [vitalsStatus, setVitalsStatus] = useState<PetVitalsStatusState | undefined>();
+  const [vitalsBusy, setVitalsBusy] = useState<PetVitalsActionId | undefined>();
   const [notice, setNotice] = useState("");
   const [connectionBusy, setConnectionBusy] = useState(false);
 
@@ -318,6 +336,129 @@ export function SettingsApp() {
       void loadManagedSkins();
     }
   }, [activeSection, petdexCatalog, petdexLoading, petdexError, managedSkins, managedSkinsLoading, managedSkinsError]);
+
+  useEffect(() => {
+    const vitalsApi = window.petdex?.pet?.vitals;
+    if (!vitalsApi) {
+      return;
+    }
+
+    let active = true;
+    void vitalsApi.get()
+      .then((next) => {
+        if (active) {
+          setVitals(next);
+        }
+      })
+      .catch(() => undefined);
+    void vitalsApi.getStatus?.()
+      .then((state) => {
+        if (active) {
+          setVitalsStatus(state);
+        }
+      })
+      .catch(() => undefined);
+
+    const offChanged = vitalsApi.onChanged((next) => setVitals(next));
+    const offStatus = vitalsApi.onStatusLayout((state) => setVitalsStatus(state));
+
+    return () => {
+      active = false;
+      offChanged();
+      offStatus();
+    };
+  }, []);
+
+  async function runVitalsAction(action: PetVitalsActionId) {
+    const vitalsApi = window.petdex?.pet?.vitals;
+    if (!vitalsApi) {
+      void showSettingsTip(disconnectedMessage);
+      return;
+    }
+
+    setVitalsBusy(action);
+    try {
+      const result = await vitalsApi.applyAction(action);
+      setVitals(result.snapshot);
+      void showSettingsTip(result.ok
+        ? `${petVitalsActionCatalog[action].label}完成：${formatPetVitalsEffects(result.effects)}`
+        : result.message);
+    } catch (error) {
+      void showSettingsTip(getErrorMessage(error, "照顾宠物失败"));
+    } finally {
+      setVitalsBusy(undefined);
+    }
+  }
+
+  async function resetVitals() {
+    const vitalsApi = window.petdex?.pet?.vitals;
+    if (!vitalsApi) {
+      void showSettingsTip(disconnectedMessage);
+      return;
+    }
+
+    try {
+      setVitals(await vitalsApi.reset());
+      void showSettingsTip("养成状态已重置");
+    } catch (error) {
+      void showSettingsTip(getErrorMessage(error, "重置养成状态失败"));
+    }
+  }
+
+  async function toggleVitalsStatus() {
+    const vitalsApi = window.petdex?.pet?.vitals;
+    if (!vitalsApi) {
+      void showSettingsTip(disconnectedMessage);
+      return;
+    }
+
+    try {
+      const state = await vitalsApi.toggleStatus();
+      setVitalsStatus(state);
+      void showSettingsTip(state.visible ? "状态栏已显示" : "状态栏已隐藏");
+    } catch (error) {
+      void showSettingsTip(getErrorMessage(error, "切换状态栏失败"));
+    }
+  }
+
+  async function followVitalsPet() {
+    const vitalsApi = window.petdex?.pet?.vitals;
+    if (!vitalsApi) {
+      void showSettingsTip(disconnectedMessage);
+      return;
+    }
+
+    try {
+      const state = await vitalsApi.setStatusAnchor("auto");
+      setVitalsStatus(state);
+      setConfig((current) => ({ ...current, vitals: { ...current.vitals, hudPosition: null } }));
+      void showSettingsTip("状态栏已回到宠物身边");
+    } catch (error) {
+      void showSettingsTip(getErrorMessage(error, "设置状态栏位置失败"));
+    }
+  }
+
+  /**
+   * Click mode is about a card that appears next to the pet, so picking it also
+   * brings a freely placed card back home.
+   */
+  async function selectVitalsHudMode(mode: PetVitalsHudMode) {
+    const returnToPet = mode === "click" && vitalsStatus?.anchor === "custom";
+    updateSection("vitals", returnToPet ? { hudMode: mode, hudPosition: null } : { hudMode: mode });
+
+    if (!returnToPet) {
+      return;
+    }
+
+    try {
+      const state = await window.petdex?.pet?.vitals?.setStatusAnchor("auto");
+      if (state) {
+        setVitalsStatus(state);
+      }
+    } catch (error) {
+      void showSettingsTip(getErrorMessage(error, "设置状态栏位置失败"));
+    }
+  }
 
   function updateSection<K extends keyof AppConfig>(section: K, patch: Partial<AppConfig[K]>) {
     setConfig((current) => ({
@@ -541,6 +682,12 @@ export function SettingsApp() {
       }
 
       const configToSave = withVisibleChatPrompt(config);
+      // A card dragged while this window was open must not be reset by a save.
+      const liveStatus = await api.pet?.vitals?.getStatus?.().catch(() => undefined);
+      if (liveStatus) {
+        configToSave.vitals = { ...configToSave.vitals, hudPosition: liveStatus.position ?? null };
+      }
+
       const nextConfig = await api.config.set(configToSave);
       const trimmedApiKey = apiKey.trim();
       setConfig(withVisibleChatPrompt(nextConfig));
@@ -924,6 +1071,164 @@ export function SettingsApp() {
               />
               自动游走
             </label>
+          </section>
+        )}
+        {activeSection === "vitals" && (
+          <section className="settings-panel" aria-labelledby="settings-vitals-heading">
+            <h1 id="settings-vitals-heading">养成</h1>
+            <section className="settings-vitals-card" aria-label="宠物当前状态">
+              <div className="settings-vitals-head">
+                <div>
+                  <span className="settings-skin-label">当前状态</span>
+                  <strong>
+                    {vitals
+                      ? `Lv.${vitals.level} · ${vitals.levelTitle} · ${vitals.statusLabel}`
+                      : "正在读取养成数据"}
+                  </strong>
+                </div>
+                <span className={`settings-vitals-mood${vitals?.moodKey === "low" ? " is-low" : ""}`}>
+                  {vitals ? vitals.moodLabel : "—"}
+                </span>
+              </div>
+              <div className="settings-vitals-bars">
+                {petVitalsStatKeys.map((key) => (
+                  <div className="settings-vitals-bar" data-stat={key} key={key}>
+                    <span className="settings-vitals-bar__label">{petVitalsStatLabels[key]}</span>
+                    <span className="settings-vitals-bar__track">
+                      <span
+                        className="settings-vitals-bar__fill"
+                        style={{ width: `${Math.max(0, Math.min(100, vitals?.stats[key] ?? 0))}%` }}
+                      />
+                    </span>
+                    <span className="settings-vitals-bar__value">{Math.round(vitals?.stats[key] ?? 0)}%</span>
+                  </div>
+                ))}
+              </div>
+              <div className="settings-vitals-bar settings-vitals-bond" data-stat="bond">
+                <span className="settings-vitals-bar__label">羁绊进度</span>
+                <span className="settings-vitals-bar__track">
+                  <span
+                    className="settings-vitals-bar__fill"
+                    style={{ width: `${Math.max(0, Math.min(1, vitals?.levelProgress ?? 0)) * 100}%` }}
+                  />
+                </span>
+                <span className="settings-vitals-bar__value">
+                  {vitals
+                    ? vitals.nextLevelPoints
+                      ? `${vitals.points} / ${vitals.nextLevelPoints}`
+                      : `${vitals.points} 满级`
+                    : "—"}
+                </span>
+              </div>
+              {vitals && vitals.warnings.length > 0 && (
+                <p className="settings-field-note">{vitals.warnings.map((warning) => warning.message).join("；")}</p>
+              )}
+              <div className="settings-action-row">
+                {petVitalsActionIds.map((actionId) => (
+                  <button
+                    key={actionId}
+                    type="button"
+                    className="settings-secondary"
+                    disabled={Boolean(vitalsBusy)}
+                    onClick={() => void runVitalsAction(actionId)}
+                  >
+                    {vitalsBusy === actionId ? "处理中" : petVitalsActionCatalog[actionId].label}
+                  </button>
+                ))}
+                <button type="button" className="settings-secondary" onClick={() => void toggleVitalsStatus()}>
+                  {vitalsStatus?.visible ? "隐藏状态栏" : "显示状态栏"}
+                </button>
+                <button
+                  type="button"
+                  className="settings-secondary"
+                  disabled={vitalsStatus?.anchor !== "custom"}
+                  onClick={() => void followVitalsPet()}
+                >
+                  状态栏跟随宠物
+                </button>
+                <button type="button" className="settings-secondary settings-danger" onClick={() => void resetVitals()}>
+                  重置养成状态
+                </button>
+              </div>
+              <p className="settings-field-note">
+                {vitalsStatus?.anchor === "custom"
+                  ? "状态栏当前是自由位置，可以直接拖动标题栏调整，或点「状态栏跟随宠物」让它回到宠物身边。"
+                  : "状态栏当前跟随宠物，拖动状态栏标题栏即可把它摆到任意位置。"}
+              </p>
+              <p className="settings-field-note">
+                好感度随互动提升，也会随时间缓慢回落；羁绊等级由累计羁绊点数决定，不会下降。
+              </p>
+            </section>
+            <label className="settings-checkbox">
+              <input
+                type="checkbox"
+                checked={config.vitals.enabled}
+                onChange={(event) => updateBoolean("vitals", "enabled", event.target.checked)}
+              />
+              启用养成系统
+            </label>
+            <div className="settings-vitals-mode" role="group" aria-label="状态栏显示方式">
+              <span className="settings-vitals-mode__label">状态栏显示</span>
+              {petVitalsHudModes.map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  className={`settings-secondary${config.vitals.hudMode === mode ? " is-active" : ""}`}
+                  aria-pressed={config.vitals.hudMode === mode}
+                  onClick={() => void selectVitalsHudMode(mode)}
+                >
+                  {petVitalsHudModeLabels[mode]}
+                </button>
+              ))}
+            </div>
+            <p className="settings-field-note">{petVitalsHudModeHints[config.vitals.hudMode]}</p>
+            <label className="settings-checkbox">
+              <input
+                type="checkbox"
+                checked={config.vitals.notifications}
+                onChange={(event) => updateBoolean("vitals", "notifications", event.target.checked)}
+              />
+              宠物需要照顾时弹出提醒
+            </label>
+            <label>
+              饱食度每小时下降
+              <input
+                type="number"
+                min="0"
+                max="40"
+                step="0.1"
+                aria-label="饱食度每小时下降"
+                value={config.vitals.satietyDecayPerHour}
+                onChange={(event) => updateSection("vitals", { satietyDecayPerHour: Number(event.target.value) })}
+              />
+            </label>
+            <label>
+              心情每小时下降
+              <input
+                type="number"
+                min="0"
+                max="40"
+                step="0.1"
+                aria-label="心情每小时下降"
+                value={config.vitals.moodDecayPerHour}
+                onChange={(event) => updateSection("vitals", { moodDecayPerHour: Number(event.target.value) })}
+              />
+            </label>
+            <label>
+              好感度每小时下降
+              <input
+                type="number"
+                min="0"
+                max="40"
+                step="0.1"
+                aria-label="好感度每小时下降"
+                value={config.vitals.affinityDecayPerHour}
+                onChange={(event) => updateSection("vitals", { affinityDecayPerHour: Number(event.target.value) })}
+              />
+            </label>
+            <p className="settings-field-note">
+              数值设为 0 表示不再随时间衰减。应用关闭期间也会按时间结算，最多补算 72 小时。
+            </p>
           </section>
         )}
         {activeSection === "skinLibrary" && (

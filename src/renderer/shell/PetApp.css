@@ -206,6 +206,19 @@ body:has(.pet-root),
   animation: pet-hover-jump 620ms ease-in-out infinite;
 }
 
+/* The 养成系统 tints the sprite so a hungry or unhappy pet reads at a glance. */
+.pet-root[data-vitals-tone] .pet-sprite {
+  transition: filter 600ms ease;
+}
+
+.pet-root[data-vitals-tone="needs-care"] .pet-sprite {
+  filter: saturate(0.72) brightness(0.94);
+}
+
+.pet-root[data-vitals-tone="delighted"] .pet-sprite {
+  filter: saturate(1.1) brightness(1.04);
+}
+
 @keyframes pet-bubble-pop {
   from {
     opacity: 0;

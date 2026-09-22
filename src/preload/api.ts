@@ -1,5 +1,12 @@
 import type { AppConfig } from "../shared/configSchema.js";
 import type { PetBubble, PetEmotionPayload } from "../shared/petBehavior.js";
+import type {
+  PetVitalsActionId,
+  PetVitalsActionResult,
+  PetVitalsSnapshot,
+  PetVitalsStatusAnchor,
+  PetVitalsStatusState,
+} from "../shared/petVitals.js";
 import type { ManagedPetSkinResult, PetdexCatalogResult, PetSkinLoadResult } from "../shared/petManifest.js";
 import type { ChatHistoryEntry, ChatMemoryState, ChatProactiveTopic, ChatSendRequest, ChatSendResult } from "../plugins/chat/types.js";
 import type { PluginContributions, PluginMenuItem } from "../shared/pluginTypes.js";
@@ -87,6 +94,22 @@ export interface PetdexApi {
     onBubble(callback: (message: string | PetBubble) => void): () => void;
     onEmotion(callback: (payload: PetEmotionPayload) => void): () => void;
     onOpenMenu(callback: () => void): () => void;
+    vitals?: {
+      get(): Promise<PetVitalsSnapshot>;
+      applyAction(action: PetVitalsActionId): Promise<PetVitalsActionResult>;
+      reset(): Promise<PetVitalsSnapshot>;
+      toggleStatus(visible?: boolean): Promise<PetVitalsStatusState>;
+      setStatusExpanded(expanded: boolean): Promise<PetVitalsStatusState>;
+      /** Drag support: moves the floating card by a screen-space delta. */
+      moveStatusBy(deltaX: number, deltaY: number): Promise<PetVitalsStatusState>;
+      /** `custom` pins the card where it is, `auto` makes it follow the pet again. */
+      setStatusAnchor(anchor: PetVitalsStatusAnchor): Promise<PetVitalsStatusState>;
+      /** Reports a left click on the pet window: `true` on the pet body itself. */
+      notifyPetClick(inside: boolean): Promise<PetVitalsStatusState>;
+      getStatus?(): Promise<PetVitalsStatusState>;
+      onChanged(callback: (snapshot: PetVitalsSnapshot) => void): () => void;
+      onStatusLayout(callback: (state: PetVitalsStatusState) => void): () => void;
+    };
   };
   screenshot?: {
     captureSelection(selection: ScreenshotSelection, options?: ScreenshotCaptureOptions): Promise<ScreenshotCaptureResult>;

@@ -45,10 +45,24 @@ function mergeConfig(base: AppConfig, update: DeepPartial<AppConfig>): AppConfig
     screenshot: { ...base.screenshot, ...update.screenshot },
     recording: { ...base.recording, ...update.recording },
     ocr: { ...base.ocr, ...update.ocr },
+    vitals: { ...base.vitals, ...update.vitals },
     pet: { ...base.pet, ...update.pet },
     chat: { ...base.chat, ...update.chat },
     plugins: { ...base.plugins, ...update.plugins },
   }));
+}
+
+/**
+ * Before `vitals.hudMode` existed the card was pinned wherever it was dragged.
+ * Configs from that era have a position but no mode, and the on-demand default
+ * puts the card back next to the pet instead of wherever it used to float.
+ */
+function migratePinnedHudPosition(parsed: DeepPartial<AppConfig>): DeepPartial<AppConfig> {
+  if (parsed.vitals?.hudMode !== undefined || !parsed.vitals?.hudPosition) {
+    return parsed;
+  }
+
+  return { ...parsed, vitals: { ...parsed.vitals, hudPosition: null } };
 }
 
 export function createConfigService(options: ConfigServiceOptions): ConfigService {
@@ -59,7 +73,7 @@ export function createConfigService(options: ConfigServiceOptions): ConfigServic
 
   if (existsSync(configPath)) {
     const parsed = JSON.parse(readFileSync(configPath, "utf8")) as DeepPartial<AppConfig>;
-    current = mergeConfig(defaultAppConfig, parsed);
+    current = mergeConfig(defaultAppConfig, migratePinnedHudPosition(parsed));
     writeFileSync(configPath, JSON.stringify(current, null, 2), "utf8");
   } else {
     writeFileSync(configPath, JSON.stringify(current, null, 2), "utf8");

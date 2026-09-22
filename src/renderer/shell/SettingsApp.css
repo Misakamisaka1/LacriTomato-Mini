@@ -301,6 +301,25 @@
   border-color: rgba(255, 93, 93, 0.48);
 }
 
+.settings-secondary.is-active {
+  color: #fff;
+  background: rgba(232, 68, 111, 0.24);
+  border-color: rgba(255, 111, 141, 0.62);
+}
+
+/* 状态栏显示方式 three-way switch. */
+.settings-vitals-mode {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.settings-vitals-mode__label {
+  margin-right: 4px;
+  color: #a9b0bd;
+}
+
 @media (max-width: 760px) {
   .settings-root {
     grid-template-columns: minmax(0, 1fr);
@@ -514,6 +533,100 @@
   font-size: 12px;
 }
 
+.settings-vitals-card {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  background: #151820;
+  border: 1px solid #303541;
+  border-radius: 8px;
+}
+
+.settings-vitals-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.settings-vitals-head strong {
+  display: block;
+  color: #fff;
+  font-size: 14px;
+}
+
+.settings-vitals-mood {
+  padding: 2px 10px;
+  color: #ffd7dd;
+  font-size: 12px;
+  white-space: nowrap;
+  background: rgba(255, 111, 141, 0.14);
+  border: 1px solid rgba(255, 111, 141, 0.34);
+  border-radius: 999px;
+}
+
+.settings-vitals-mood.is-low {
+  color: #ffd7d7;
+  background: rgba(226, 67, 76, 0.16);
+  border-color: rgba(255, 108, 108, 0.4);
+}
+
+.settings-vitals-bars {
+  display: grid;
+  gap: 8px;
+}
+
+.settings-vitals-bar {
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr) 60px;
+  gap: 10px;
+  align-items: center;
+  min-width: 0;
+}
+
+.settings-vitals-bar__label {
+  color: #d7deeb;
+  font-size: 12px;
+}
+
+.settings-vitals-bar__track {
+  position: relative;
+  display: block;
+  height: 8px;
+  overflow: hidden;
+  background: #11141a;
+  border: 1px solid #303541;
+  border-radius: 999px;
+}
+
+.settings-vitals-bar__fill {
+  display: block;
+  height: 100%;
+  background: linear-gradient(90deg, #ff8fa6, #e8446f);
+  border-radius: 999px;
+  transition: width 380ms cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.settings-vitals-bar[data-stat="satiety"] .settings-vitals-bar__fill {
+  background: linear-gradient(90deg, #ffd9a0, #ff9a3c);
+}
+
+.settings-vitals-bar[data-stat="mood"] .settings-vitals-bar__fill {
+  background: linear-gradient(90deg, #cdbcff, #8f6bff);
+}
+
+.settings-vitals-bond .settings-vitals-bar__fill,
+.settings-vitals-bar[data-stat="bond"] .settings-vitals-bar__fill {
+  background: linear-gradient(90deg, #ffd479, #ff9d5c);
+}
+
+.settings-vitals-bar__value {
+  color: #fff;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
 @media (max-width: 760px) {
   .settings-petdex-item,
   .settings-managed-skin-item {
@@ -534,5 +647,11 @@
   .settings-petdex-pagination {
     justify-content: flex-start;
     flex-wrap: wrap;
+  }
+}
+
+@media (max-width: 620px) {
+  .settings-vitals-bar {
+    grid-template-columns: 62px minmax(0, 1fr) 54px;
   }
 }

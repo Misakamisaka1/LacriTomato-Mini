@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer } from "electron";
 import type { IpcRendererEvent } from "electron";
 import type { AppConfig } from "../shared/configSchema.js";
 import type { PetEmotionPayload } from "../shared/petBehavior.js";
+import type { PetVitalsSnapshot, PetVitalsStatusState } from "../shared/petVitals.js";
 import type { PetSkinLoadResult } from "../shared/petManifest.js";
 import type { RecordingState } from "../plugins/recording/types.js";
 import type { ScreenshotCursorUpdate, ScreenshotSessionState, ScreenshotSessionUpdate } from "../plugins/screenshot/workflow.js";
@@ -99,6 +100,28 @@ const api: PetdexApi = {
       };
       ipcRenderer.on(ipcChannels.petMenuAction, listener);
       return () => ipcRenderer.removeListener(ipcChannels.petMenuAction, listener);
+    },
+    vitals: {
+      get: () => ipcRenderer.invoke(ipcChannels.petVitalsGet),
+      applyAction: (action) => ipcRenderer.invoke(ipcChannels.petVitalsAction, { action }),
+      reset: () => ipcRenderer.invoke(ipcChannels.petVitalsReset),
+      toggleStatus: (visible) => ipcRenderer.invoke(ipcChannels.petVitalsStatusToggle, { visible }),
+      setStatusExpanded: (expanded) => ipcRenderer.invoke(ipcChannels.petVitalsStatusSetExpanded, { expanded }),
+      moveStatusBy: (deltaX, deltaY) => ipcRenderer.invoke(ipcChannels.petVitalsStatusMoveBy, { deltaX, deltaY }),
+      setStatusAnchor: (anchor) => ipcRenderer.invoke(ipcChannels.petVitalsStatusAnchor, { anchor }),
+      notifyPetClick: (inside) => ipcRenderer.invoke(ipcChannels.petVitalsStatusPetClick, { inside }),
+      // `visible: undefined` asks for the current layout without changing it.
+      getStatus: () => ipcRenderer.invoke(ipcChannels.petVitalsStatusToggle, { visible: undefined }),
+      onChanged: (callback) => {
+        const listener = (_event: IpcRendererEvent, snapshot: PetVitalsSnapshot) => callback(snapshot);
+        ipcRenderer.on(ipcChannels.petVitalsChanged, listener);
+        return () => ipcRenderer.removeListener(ipcChannels.petVitalsChanged, listener);
+      },
+      onStatusLayout: (callback) => {
+        const listener = (_event: IpcRendererEvent, state: PetVitalsStatusState) => callback(state);
+        ipcRenderer.on(ipcChannels.petVitalsStatusLayout, listener);
+        return () => ipcRenderer.removeListener(ipcChannels.petVitalsStatusLayout, listener);
+      },
     },
   },
   recording: {

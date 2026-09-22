@@ -7,6 +7,7 @@ import { TranslatorPanel } from "../plugins/translator/renderer/TranslatorPanel"
 import { PetApp } from "./shell/PetApp";
 import { PetBubbleLayer } from "./shell/PetBubbleLayer";
 import { PetMenuLayer } from "./shell/PetMenuLayer";
+import { PetVitalsLayer } from "./shell/PetVitalsLayer";
 import { SettingsApp } from "./shell/SettingsApp";
 
 export function AppRouter() {
@@ -23,6 +24,10 @@ export function AppRouter() {
 
   if (view === "pet-menu") {
     return <PetMenuLayer />;
+  }
+
+  if (view === "pet-status") {
+    return <PetVitalsLayer />;
   }
 
   if (view === "translator") {

@@ -5,12 +5,25 @@ import type { TranslateRequest } from "../../plugins/translator/types.js";
 import type { AppConfig } from "../../shared/configSchema.js";
 import { ipcChannels } from "../../shared/ipcChannels.js";
 import type { PetBubble, PetEmotion } from "../../shared/petBehavior.js";
+import {
+  clampPetVitalsHudPosition,
+  getPetVitalsHudPlacement,
+  getPetVitalsPanelSize,
+  getPetVitalsTailOffset,
+  petVitalsActionIds,
+  type PetVitalsActionId,
+  type PetVitalsActionResult,
+  type PetVitalsHudPosition,
+  type PetVitalsStatusAnchor,
+  type PetVitalsStatusState,
+} from "../../shared/petVitals.js";
 import type { PluginMenuItem } from "../../shared/pluginTypes.js";
 import type { ScreenshotCaptureOptions, ScreenshotSelection, ScreenshotSessionUpdate } from "../../plugins/screenshot/workflow.js";
 import type { ChatStateService } from "../services/chatStateService.js";
 import type { ConfigService } from "../services/configService.js";
 import type { ModelProviderConfig, ModelService } from "../services/modelService.js";
 import type { OcrService } from "../services/ocrService.js";
+import type { PetVitalsService } from "../services/petVitalsService.js";
 import type { PluginRegistry } from "../services/pluginRegistry.js";
 import type { PetSkinService } from "../services/petSkinService.js";
 import type { PetPositionService } from "../services/petPositionService.js";
@@ -22,9 +35,12 @@ import type { RecordingStartResult, RecordingStopResult } from "../../plugins/re
 import {
   createPetBubbleWindow,
   createPetMenuWindow,
+  createPetStatusWindow,
   getPetBubbleOverlayBounds,
   getPetBubbleOverlayHeight,
   getPetMenuOverlayLayout,
+  getPetSpriteBounds,
+  getPetStatusOverlayLayout,
 } from "../windows/petOverlayWindows.js";
 
 export interface CoreIpcDependencies {
@@ -40,6 +56,9 @@ export interface CoreIpcDependencies {
   stopRecording?(): Promise<RecordingStopResult>;
   pluginRegistry: PluginRegistry;
   chatStateService?: ChatStateService;
+  petVitalsService?: PetVitalsService;
+  onPetVitalsAction?(result: PetVitalsActionResult): void;
+  onPetVitalsReset?(): void;
   getModelProviderConfig?(): ModelProviderConfig;
   invokePluginAction(action: string): Promise<void>;
   onConfigChanged?(config: AppConfig): void;
@@ -212,6 +231,61 @@ function ensurePetSkinService(deps: CoreIpcDependencies) {
   return deps.petSkinService;
 }
 
+function ensurePetVitalsService(deps: CoreIpcDependencies) {
+  if (!deps.petVitalsService) {
+    throw new Error("养成服务未就绪");
+  }
+
+  return deps.petVitalsService;
+}
+
+function readPetVitalsAction(payload: unknown): PetVitalsActionId {
+  const value = payload && typeof payload === "object" && "action" in payload
+    ? (payload as { action?: unknown }).action
+    : payload;
+
+  if (typeof value !== "string" || !petVitalsActionIds.includes(value as PetVitalsActionId)) {
+    throw new Error("未知的养成操作");
+  }
+
+  return value as PetVitalsActionId;
+}
+
+function readOptionalBoolean(payload: unknown) {
+  const value = payload && typeof payload === "object" && "visible" in payload
+    ? (payload as { visible?: unknown }).visible
+    : payload;
+
+  return typeof value === "boolean" ? value : undefined;
+}
+
+function readExpandedFlag(payload: unknown) {
+  const value = payload && typeof payload === "object" && "expanded" in payload
+    ? (payload as { expanded?: unknown }).expanded
+    : payload;
+
+  return value === true;
+}
+
+function readVitalsDelta(payload: unknown) {
+  const source = payload && typeof payload === "object" ? payload as { deltaX?: unknown; deltaY?: unknown } : {};
+  const deltaX = typeof source.deltaX === "number" && Number.isFinite(source.deltaX) ? source.deltaX : 0;
+  const deltaY = typeof source.deltaY === "number" && Number.isFinite(source.deltaY) ? source.deltaY : 0;
+
+  return { deltaX, deltaY };
+}
+
+function readVitalsAnchor(payload: unknown): PetVitalsStatusAnchor {
+  const source = payload && typeof payload === "object" ? payload as { anchor?: unknown } : {};
+  return source.anchor === "custom" ? "custom" : "auto";
+}
+
+/** True when the left click landed on the pet body instead of the empty area. */
+function readInsidePetFlag(payload: unknown) {
+  const source = payload && typeof payload === "object" ? payload as { inside?: unknown } : {};
+  return source.inside === true;
+}
+
 function readChatContent(request: ChatSendRequest) {
   const content = typeof request?.content === "string" ? request.content.trim() : "";
   if (!content) {
@@ -256,12 +330,35 @@ function ensureModelDeps(deps: CoreIpcDependencies) {
   };
 }
 
-export function registerCoreIpc(deps: CoreIpcDependencies): void {
+export interface CoreIpcController {
+  /** Re-applies config/visibility rules for the floating vitals card. */
+  syncPetVitalsStatus(): PetVitalsStatusState;
+  /** Menu/tray entry point: shows, hides or queries the vitals card. */
+  setPetVitalsStatusVisible(visible?: boolean): PetVitalsStatusState;
+  /** Writes a dragged card position that was not persisted yet. */
+  persistPetVitalsStatusPosition(): void;
+}
+
+/** Grace period so a click on the pet can cancel the blur-triggered hide. */
+const vitalsBlurHideDelayMs = 180;
+
+export function registerCoreIpc(deps: CoreIpcDependencies): CoreIpcController {
   let activePetWindow: BrowserWindow | undefined;
   let bubbleLayerWindow: BrowserWindow | undefined;
   let menuLayerWindow: BrowserWindow | undefined;
+  let vitalsLayerWindow: BrowserWindow | undefined;
   let activeMenuItemCount = 0;
   let activeBubbleHeight = 72;
+  let vitalsExpanded = false;
+  let vitalsPlacement: PetVitalsStatusState["placement"] = "right";
+  let vitalsVisibilityOverride: boolean | undefined;
+  // `undefined` means "nothing dragged this session, read the config"; `null`
+  // means the card follows the pet again.
+  let vitalsPositionOverride: PetVitalsHudPosition | null | undefined;
+  let vitalsTailOffset = 46;
+  // Set while the card was summoned by a click and no outside click followed.
+  let vitalsClickSummoned = false;
+  let vitalsHideTimer: ReturnType<typeof setTimeout> | undefined;
 
   // The last pet body size synced by the renderer. The pet window is moved with
   // explicit bounds so repeated setPosition calls cannot inflate a Windows
@@ -284,10 +381,126 @@ export function registerCoreIpc(deps: CoreIpcDependencies): void {
     }
   };
 
+  const hideVitalsLayer = () => {
+    if (vitalsLayerWindow && !isWindowDestroyed(vitalsLayerWindow)) {
+      vitalsLayerWindow.hide();
+    }
+  };
+
   const hidePetLayers = () => {
     hideBubbleLayer();
     hideMenuLayer();
+    hideVitalsLayer();
+    // Hiding the pet also forgets an on-demand card.
+    cancelPendingVitalsHide();
+    vitalsClickSummoned = false;
   };
+
+  function getVitalsStatusState(visible = isVitalsStatusWanted()): PetVitalsStatusState {
+    const position = getVitalsHudPosition();
+
+    return {
+      visible,
+      expanded: vitalsExpanded,
+      placement: vitalsPlacement,
+      anchor: position ? "custom" : "auto",
+      position,
+      tailOffset: vitalsTailOffset,
+    };
+  }
+
+  function getVitalsHudPosition(): PetVitalsHudPosition | null {
+    if (vitalsPositionOverride !== undefined) {
+      return vitalsPositionOverride;
+    }
+
+    return deps.configService.getConfig().vitals.hudPosition ?? null;
+  }
+
+  function saveVitalsHudPosition(position: PetVitalsHudPosition | null) {
+    vitalsPositionOverride = position;
+    deps.configService.setConfig({ vitals: { hudPosition: position } });
+  }
+
+  function isVitalsStatusWanted() {
+    if (vitalsVisibilityOverride !== undefined) {
+      return vitalsVisibilityOverride;
+    }
+
+    const config = deps.configService.getConfig();
+    if (!deps.petVitalsService || !config.vitals.enabled) {
+      return false;
+    }
+
+    if (config.vitals.hudMode === "always") {
+      return true;
+    }
+
+    // "click" waits for a left click on the pet, "hidden" only shows on demand.
+    return config.vitals.hudMode === "click" && vitalsClickSummoned;
+  }
+
+  function cancelPendingVitalsHide() {
+    if (vitalsHideTimer) {
+      clearTimeout(vitalsHideTimer);
+      vitalsHideTimer = undefined;
+    }
+  }
+
+  /**
+   * Clicking anything outside the pet (or the card) focuses another window and
+   * blurs the card, which is our only reliable "clicked outside" signal.
+   */
+  function scheduleVitalsHide() {
+    cancelPendingVitalsHide();
+    vitalsHideTimer = setTimeout(() => {
+      vitalsHideTimer = undefined;
+      if (!isVitalsClickMode()) {
+        return;
+      }
+
+      vitalsVisibilityOverride = false;
+      vitalsClickSummoned = false;
+      syncVitalsStatusLayout();
+      broadcastVitalsStatus();
+    }, vitalsBlurHideDelayMs);
+  }
+
+  function isVitalsClickMode() {
+    return Boolean(deps.petVitalsService) && deps.configService.getConfig().vitals.hudMode === "click";
+  }
+
+  /**
+   * A left click on the pet body shows the card; a left click on the rest of the
+   * pet window means the user clicked outside the pet, so it hides again.
+   */
+  function handleVitalsPetClick(inside: boolean): PetVitalsStatusState {
+    if (!isVitalsClickMode()) {
+      return getVitalsStatusState();
+    }
+
+    cancelPendingVitalsHide();
+    vitalsClickSummoned = inside;
+    vitalsVisibilityOverride = inside ? undefined : false;
+    syncVitalsStatusLayout();
+    broadcastVitalsStatus();
+
+    return getVitalsStatusState();
+  }
+
+  function broadcastVitalsStatus() {
+    const state = getVitalsStatusState();
+    BrowserWindow.getAllWindows().forEach((window) => {
+      if (!isWindowDestroyed(window)) {
+        window.webContents.send(ipcChannels.petVitalsStatusLayout, state);
+      }
+    });
+  }
+
+  function getVitalsSourceWindow() {
+    const candidate = deps.petWindow ?? activePetWindow;
+    return candidate && !isWindowDestroyed(candidate) ? candidate : undefined;
+  }
 
   function bindLayerSource(window: BrowserWindow) {
     if (activePetWindow === window) {
@@ -339,6 +552,155 @@ export function registerCoreIpc(deps: CoreIpcDependencies): void {
     return { window: menuLayerWindow, rendererIndexPath: paths.rendererIndexPath };
   }
 
+  function createVitalsLayer() {
+    const paths = getLayerPaths();
+    if (!paths) {
+      return undefined;
+    }
+
+    if (!vitalsLayerWindow || isWindowDestroyed(vitalsLayerWindow)) {
+      const alwaysOnTop = deps.configService.getConfig().pet.alwaysOnTop;
+      vitalsLayerWindow = createPetStatusWindow(
+        BrowserWindow,
+        paths.preloadPath,
+        alwaysOnTop,
+        getPetVitalsPanelSize(vitalsExpanded),
+      );
+      vitalsLayerWindow.on("closed", () => {
+        vitalsLayerWindow = undefined;
+      });
+      // In click mode the card is only focused while it is summoned, so losing
+      // focus means the user clicked somewhere outside the pet.
+      vitalsLayerWindow.on("blur", () => {
+        if (isVitalsClickMode()) {
+          scheduleVitalsHide();
+        }
+      });
+      // Loaded once: the card keeps its own state and follows vitals events.
+      void vitalsLayerWindow.loadFile(paths.rendererIndexPath, {
+        query: {
+          view: "pet-status",
+          expanded: vitalsExpanded ? "1" : "0",
+          anchor: getVitalsHudPosition() ? "custom" : "auto",
+        },
+      }).catch(() => undefined);
+    }
+
+    return { window: vitalsLayerWindow, rendererIndexPath: paths.rendererIndexPath };
+  }
+
+  function layoutVitalsLayer(sourceWindow: BrowserWindow, window: BrowserWindow) {
+    const size = getPetVitalsPanelSize(vitalsExpanded);
+    const spriteBounds = getPetSpriteBounds(sourceWindow.getBounds(), petBodySizeCache);
+    const custom = getVitalsHudPosition();
+
+    if (custom) {
+      // A dragged card keeps its own screen position, clamped to the display it
+      // was dropped on so it can never end up under the taskbar or off-screen.
+      const workArea = screen.getDisplayMatching({ ...custom, ...size }).workArea;
+      const position = clampPetVitalsHudPosition(custom, size, workArea);
+      const bounds = { x: position.x, y: position.y, width: size.width, height: size.height };
+
+      if (vitalsPositionOverride && (position.x !== custom.x || position.y !== custom.y)) {
+        vitalsPositionOverride = position;
+      }
+
+      vitalsPlacement = getPetVitalsHudPlacement(
+        bounds.x + bounds.width / 2,
+        spriteBounds.x + spriteBounds.width / 2,
+      );
+      vitalsTailOffset = getPetVitalsTailOffset(bounds, spriteBounds);
+      window.setBounds(bounds);
+      return;
+    }
+
+    const workArea = screen.getDisplayMatching(spriteBounds).workArea;
+    const layout = getPetStatusOverlayLayout(spriteBounds, workArea, size);
+    vitalsPlacement = layout.placement;
+    vitalsTailOffset = getPetVitalsTailOffset(layout.bounds, spriteBounds);
+    window.setBounds(layout.bounds);
+  }
+
+  function moveVitalsStatusBy(deltaX: number, deltaY: number): PetVitalsStatusState {
+    const window = vitalsLayerWindow;
+    const sourceWindow = getVitalsSourceWindow();
+    if (!window || isWindowDestroyed(window) || !sourceWindow || !window.isVisible()) {
+      return getVitalsStatusState();
+    }
+
+    const current = window.getBounds();
+    // The first drag step turns the card into a free-floating one.
+    vitalsPositionOverride = { x: current.x + deltaX, y: current.y + deltaY };
+    layoutVitalsLayer(sourceWindow, window);
+    broadcastVitalsStatus();
+
+    return getVitalsStatusState();
+  }
+
+  function setVitalsStatusAnchor(anchor: PetVitalsStatusAnchor): PetVitalsStatusState {
+    if (anchor === "auto") {
+      saveVitalsHudPosition(null);
+    } else {
+      const window = vitalsLayerWindow;
+      const current = window && !isWindowDestroyed(window) ? window.getBounds() : undefined;
+      const position = current ? { x: current.x, y: current.y } : getVitalsHudPosition();
+
+      if (position) {
+        saveVitalsHudPosition(position);
+      }
+    }
+
+    syncVitalsStatusLayout();
+    broadcastVitalsStatus();
+
+    return getVitalsStatusState();
+  }
+
+  function syncVitalsStatusLayout() {
+    const sourceWindow = getVitalsSourceWindow();
+    if (!sourceWindow) {
+      hideVitalsLayer();
+      return;
+    }
+
+    const wanted = isVitalsStatusWanted() && sourceWindow.isVisible();
+    if (!wanted) {
+      hideVitalsLayer();
+      return;
+    }
+
+    const layer = createVitalsLayer();
+    if (!layer) {
+      return;
+    }
+
+    // Hiding the pet always takes its floating card with it.
+    bindLayerSource(sourceWindow);
+
+    const alwaysOnTop = deps.configService.getConfig().pet.alwaysOnTop;
+    if (alwaysOnTop) {
+      layer.window.setAlwaysOnTop(true, "screen-saver");
+    } else {
+      layer.window.setAlwaysOnTop(false);
+    }
+
+    layoutVitalsLayer(sourceWindow, layer.window);
+
+    const summoned = isVitalsClickMode() && vitalsClickSummoned;
+    if (!layer.window.isVisible()) {
+      if (summoned) {
+        // A summoned card takes focus so that clicking elsewhere blurs it.
+        layer.window.show();
+      } else {
+        layer.window.showInactive();
+      }
+    }
+
+    if (summoned) {
+      layer.window.focus();
+    }
+  }
+
   function repositionPetLayers(sourceWindow: BrowserWindow) {
     if (isWindowDestroyed(sourceWindow)) {
       return;
@@ -354,10 +716,27 @@ export function registerCoreIpc(deps: CoreIpcDependencies): void {
     if (menuLayerWindow && !isWindowDestroyed(menuLayerWindow) && menuLayerWindow.isVisible()) {
       menuLayerWindow.setBounds(getPetMenuOverlayLayout(petBounds, workArea, activeMenuItemCount).bounds);
     }
+
+    if (vitalsLayerWindow && !isWindowDestroyed(vitalsLayerWindow) && vitalsLayerWindow.isVisible()) {
+      const previousPlacement = vitalsPlacement;
+      const previousTailOffset = vitalsTailOffset;
+      layoutVitalsLayer(sourceWindow, vitalsLayerWindow);
+      // Only tell the card about a move when its own layout actually changed.
+      if (vitalsPlacement !== previousPlacement || vitalsTailOffset !== previousTailOffset) {
+        broadcastVitalsStatus();
+      }
+    }
   }
   deps.recordingService?.onStateChanged((state) => {
     BrowserWindow.getAllWindows().forEach((window) => {
       window.webContents.send(ipcChannels.recordingStateChanged, state);
+    });
+  });
+  deps.petVitalsService?.onChanged((snapshot) => {
+    BrowserWindow.getAllWindows().forEach((window) => {
+      if (!isWindowDestroyed(window)) {
+        window.webContents.send(ipcChannels.petVitalsChanged, snapshot);
+      }
     });
   });
   ipcMain.handle(ipcChannels.configGet, () => deps.configService.getConfig());
@@ -651,6 +1030,43 @@ export function registerCoreIpc(deps: CoreIpcDependencies): void {
 
     return choosePetMenuPlacement(window, menuWidth);
   });
+  ipcMain.handle(ipcChannels.petVitalsGet, () => ensurePetVitalsService(deps).getSnapshot());
+  ipcMain.handle(ipcChannels.petVitalsAction, (_event, payload: unknown) => {
+    const result = ensurePetVitalsService(deps).applyAction(readPetVitalsAction(payload));
+    deps.onPetVitalsAction?.(result);
+    return result;
+  });
+  ipcMain.handle(ipcChannels.petVitalsReset, () => {
+    const snapshot = ensurePetVitalsService(deps).reset();
+    deps.onPetVitalsReset?.();
+    return snapshot;
+  });
+  ipcMain.handle(ipcChannels.petVitalsStatusToggle, (_event, payload: unknown) => {
+    const visible = readOptionalBoolean(payload);
+    if (visible !== undefined) {
+      vitalsVisibilityOverride = visible;
+      syncVitalsStatusLayout();
+      broadcastVitalsStatus();
+    }
+
+    return getVitalsStatusState();
+  });
+  ipcMain.handle(ipcChannels.petVitalsStatusSetExpanded, (_event, payload: unknown) => {
+    vitalsExpanded = readExpandedFlag(payload);
+    syncVitalsStatusLayout();
+    broadcastVitalsStatus();
+    return getVitalsStatusState();
+  });
+  ipcMain.handle(ipcChannels.petVitalsStatusMoveBy, (_event, payload: unknown) => {
+    const delta = readVitalsDelta(payload);
+    return moveVitalsStatusBy(delta.deltaX, delta.deltaY);
+  });
+  ipcMain.handle(ipcChannels.petVitalsStatusAnchor, (_event, payload: unknown) => {
+    return setVitalsStatusAnchor(readVitalsAnchor(payload));
+  });
+  ipcMain.handle(ipcChannels.petVitalsStatusPetClick, (_event, payload: unknown) => {
+    return handleVitalsPetClick(readInsidePetFlag(payload));
+  });
   ipcMain.handle(ipcChannels.screenshotCaptureSelection, (event, selection: ScreenshotSelection, options?: ScreenshotCaptureOptions) => {
     const window = BrowserWindow.fromWebContents(event.sender);
     if (!window || !deps.screenshotService) {
@@ -776,4 +1192,28 @@ export function registerCoreIpc(deps: CoreIpcDependencies): void {
   ipcMain.handle(ipcChannels.pluginListMenuItems, () => deps.pluginRegistry.getMenuItems());
   ipcMain.handle(ipcChannels.pluginListContributions, () => deps.pluginRegistry.getContributions());
   ipcMain.handle(ipcChannels.pluginInvokeAction, (_event, action: string) => deps.invokePluginAction(action));
+
+  return {
+    syncPetVitalsStatus() {
+      syncVitalsStatusLayout();
+      broadcastVitalsStatus();
+      return getVitalsStatusState();
+    },
+    setPetVitalsStatusVisible(visible?: boolean) {
+      if (visible === undefined) {
+        vitalsVisibilityOverride = !isVitalsStatusWanted();
+      } else {
+        vitalsVisibilityOverride = visible;
+      }
+
+      syncVitalsStatusLayout();
+      broadcastVitalsStatus();
+      return getVitalsStatusState();
+    },
+    persistPetVitalsStatusPosition() {
+      if (vitalsPositionOverride !== undefined) {
+        deps.configService.setConfig({ vitals: { hudPosition: vitalsPositionOverride } });
+      }
+    },
+  };
 }
