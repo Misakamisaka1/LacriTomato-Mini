@@ -14,6 +14,7 @@ import { registerAppShortcuts } from "./services/appShortcuts.js";
 import { createChatStateService } from "./services/chatStateService.js";
 import { createConfigService } from "./services/configService.js";
 import { createPetPositionService } from "./services/petPositionService.js";
+import { createPetVitalsService } from "./services/petVitalsService.js";
 import { createModelService } from "./services/modelService.js";
 import { createPluginRegistry } from "./services/pluginRegistry.js";
 import { createProactiveTopicService } from "./services/proactiveTopicService.js";
@@ -101,6 +102,10 @@ async function main() {
   });
   const shortcutService = createShortcutService();
   const petPositionService = createPetPositionService({ userDataPath });
+  const petVitalsService = createPetVitalsService({
+    userDataPath,
+    getConfig: () => configService.getConfig(),
+  });
   const petWindow = createPetWindow(preloadPath, configService.getConfig().pet, rendererIndexPath);
   const savedPetAnchor = petPositionService.load();
   if (savedPetAnchor) {
@@ -190,7 +195,12 @@ async function main() {
       return;
     }
 
+    showPetWindow();
+  }
+
+  function showPetWindow() {
     petWindow.show();
+    coreIpc.syncPetVitalsStatus();
   }
 
   async function startAreaCapture() {
@@ -308,10 +318,20 @@ async function main() {
       return;
     }
 
+    if (action === "pet.vitals.toggleStatus") {
+      const status = coreIpc.setPetVitalsStatusVisible();
+      showPetBubble(status.visible ? "状态栏打开啦" : "状态栏收起来了", status.visible ? "happy" : "attentive");
+      return;
+    }
+
     showPetBubble(`功能 ${action} 已收到`, "attentive");
   }
 
-  registerCoreIpc({
+  petVitalsService.onNeed((need) => {
+    showPetBubble(need.message, need.emotion);
+  });
+
+  const coreIpc = registerCoreIpc({
     configService,
     preloadPath,
     rendererIndexPath,
@@ -324,10 +344,17 @@ async function main() {
     stopRecording,
     pluginRegistry,
     chatStateService,
+    petVitalsService,
     getModelProviderConfig() {
       return { ...configService.getConfig().model, apiKey: secretService.getApiKey() };
     },
     invokePluginAction,
+    onPetVitalsAction(result) {
+      showPetBubble(result.reaction, result.reactionEmotion);
+    },
+    onPetVitalsReset() {
+      showPetBubble("养成状态已重置，我们重新开始吧", "waving");
+    },
     onConfigChanged(nextConfig) {
       pluginRegistry.updateEnabledPlugins(nextConfig.plugins);
       if (nextConfig.pet.alwaysOnTop) {
@@ -340,6 +367,7 @@ async function main() {
       });
       registerShortcuts(nextConfig);
       proactiveTopicService.reschedule();
+      coreIpc.syncPetVitalsStatus();
     },
     async setApiKey(nextApiKey: string) {
       secretService.setApiKey(nextApiKey);
@@ -364,8 +392,12 @@ async function main() {
 
   registerShortcuts(configService.getConfig());
   proactiveTopicService.start();
+  petVitalsService.start();
+  coreIpc.syncPetVitalsStatus();
   app.on("will-quit", () => {
+    coreIpc.persistPetVitalsStatusPosition();
     proactiveTopicService.stop();
+    petVitalsService.stop();
     void stopRecording();
     shortcutService.unregisterAll();
   });
@@ -373,8 +405,9 @@ async function main() {
   tray = new Tray(createTrayIcon(appPaths.trayIconPath));
   tray.setToolTip("LacriTomato Mini");
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: "显示宠物", click: () => petWindow.show() },
+    { label: "显示宠物", click: () => showPetWindow() },
     { label: "隐藏宠物", click: () => petWindow.hide() },
+    { label: "宠物状态栏", click: () => coreIpc.setPetVitalsStatusVisible() },
     { label: "设置", click: () => createSettingsWindow(preloadPath, rendererIndexPath) },
     { type: "separator" },
     { label: "退出", click: () => app.quit() },

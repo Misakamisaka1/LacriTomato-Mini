@@ -11,6 +11,7 @@ import {
   type PetEmotionPayload,
 } from "../../shared/petBehavior";
 import type { PetManifest, PetSkinLoadResult } from "../../shared/petManifest";
+import type { PetVitalsSnapshot } from "../../shared/petVitals";
 import type { PluginMenuItem } from "../../shared/pluginTypes";
 import { PetHeadMenu } from "../components/PetHeadMenu";
 import { PetSprite } from "../components/PetSprite";
@@ -19,11 +20,12 @@ import "./PetApp.css";
 const fallbackMenuItems: PluginMenuItem[] = [
   { id: "translator.open", label: "翻译", action: "translator.open", icon: "Languages" },
   { id: "screenshot.capture", label: "截图", action: "screenshot.capture", icon: "ScanLine" },
+  { id: "pet.vitals.toggleStatus", label: "状态", action: "pet.vitals.toggleStatus", icon: "Activity" },
   { id: "settings.open", label: "设置", action: "settings.open", icon: "Settings" },
 ];
 
 const localMenuItems = fallbackMenuItems.filter(
-  (item) => item.action === "settings.open",
+  (item) => item.action === "settings.open" || item.action === "pet.vitals.toggleStatus",
 );
 
 const fallbackManifest = petManifest as PetManifest;
@@ -68,6 +70,33 @@ function readDragPoint(event: PointerEvent<HTMLElement>): DragPoint {
 function isMenuTarget(target: EventTarget | null) {
   return target instanceof Element && Boolean(target.closest(".pet-head-menu"));
 }
+
+/** The pet body itself, as opposed to the empty space of the pet window. */
+function isPetBodyTarget(target: EventTarget | null) {
+  return target instanceof Element && Boolean(target.closest(".pet-body"));
+}
+
+/**
+ * The sprite ignores pointer events, so a click always lands on the root: the
+ * pet body has to be hit-tested geometrically.
+ */
+function isPetBodyHit(root: HTMLElement, target: EventTarget | null, clientX: number, clientY: number) {
+  const body = root.querySelector(".pet-body");
+  if (!(body instanceof HTMLElement)) {
+    return false;
+  }
+
+  const rect = body.getBoundingClientRect();
+  if (rect.width <= 0 || rect.height <= 0) {
+    // No layout yet (tests, a torn-down window): fall back to the event target.
+    return isPetBodyTarget(target);
+  }
+
+  return clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
+}
+
+/** Pointer travel below this still counts as a click, not a drag. */
+const clickTravelThreshold = 3;
 
 function isPrimaryPointer(event: PointerEvent<HTMLElement>) {
   return event.button === 0 || event.buttons === 1 || typeof event.button !== "number";
@@ -207,13 +236,16 @@ export function PetApp() {
   const [dragging, setDragging] = useState(false);
   const [dragAnimation, setDragAnimation] = useState<"runLeft" | "runRight" | undefined>();
   const [bubbleSize, setBubbleSize] = useState({ height: 0, width: 0 });
+  const [vitals, setVitals] = useState<PetVitalsSnapshot | undefined>();
   const dragPointRef = useRef<DragPoint | undefined>(undefined);
+  const dragStartRef = useRef<DragPoint | undefined>(undefined);
+  const dragMovedRef = useRef(false);
   const bubbleRef = useRef<HTMLDivElement>(null);
   const menuOpenRef = useRef(false);
   const menuOpeningRef = useRef(false);
   const lastRendererContextMenuAtRef = useRef(Number.NEGATIVE_INFINITY);
   const hoverActive = !menuOpen && !menuOpening && !dragging && hovering;
-  const hoverAnimation = hoverActive ? "jumping" : undefined;
+  const hoverAnimation = hoverActive ? "waving" : undefined;
   const displayAnimation = menuOpen || menuOpening ? "idle" : dragAnimation ?? hoverAnimation ?? behavior.animation;
   const currentAnimation = useMemo(() => getAnimation(activeManifest, displayAnimation), [activeManifest, displayAnimation]);
   const interactionPaused = menuOpen || menuOpening || hoverActive || dragging;
@@ -459,6 +491,29 @@ export function PetApp() {
   }, [applyEmotion]);
 
   useEffect(() => {
+    const vitalsApi = window.petdex?.pet?.vitals;
+    if (!vitalsApi) {
+      return;
+    }
+
+    let active = true;
+    void vitalsApi.get()
+      .then((next) => {
+        if (active) {
+          setVitals(next);
+        }
+      })
+      .catch(() => undefined);
+
+    const offChanged = vitalsApi.onChanged((next) => setVitals(next));
+
+    return () => {
+      active = false;
+      offChanged();
+    };
+  }, []);
+
+  useEffect(() => {
     setFrame(0);
   }, [displayAnimation, activeManifest]);
 
@@ -522,6 +577,8 @@ export function PetApp() {
     }
 
     dragPointRef.current = readDragPoint(event);
+    dragStartRef.current = dragPointRef.current;
+    dragMovedRef.current = false;
     setDragAnimation(undefined);
     setDragging(true);
     applyEmotion("attentive", undefined, 900);
@@ -542,6 +599,12 @@ export function PetApp() {
       return;
     }
 
+    const start = dragStartRef.current;
+    if (!dragMovedRef.current && start
+      && Math.hypot(nextPoint.x - start.x, nextPoint.y - start.y) > clickTravelThreshold) {
+      dragMovedRef.current = true;
+    }
+
     dragPointRef.current = nextPoint;
     if (deltaX > 0) {
       setDragAnimation("runRight");
@@ -553,11 +616,26 @@ export function PetApp() {
 
   function stopDrag(event: PointerEvent<HTMLElement>) {
     dragPointRef.current = undefined;
+    const started = Boolean(dragStartRef.current);
+    const moved = dragMovedRef.current;
+    dragStartRef.current = undefined;
+    dragMovedRef.current = false;
     setDragging(false);
     setDragAnimation(undefined);
     event.currentTarget.releasePointerCapture?.(event.pointerId);
     const savePositionPromise = window.petdex?.pet?.savePosition?.();
     void savePositionPromise?.catch(() => undefined);
+
+    if (!started || moved) {
+      return;
+    }
+
+    // Click mode uses this to show the vitals card on the pet and hide it when
+    // the click landed on the empty space around the pet.
+    const root = event.currentTarget;
+    void Promise.resolve(
+      window.petdex?.pet?.vitals?.notifyPetClick?.(isPetBodyHit(root, event.target, event.clientX, event.clientY)),
+    ).catch(() => undefined);
   }
 
   const safeFrame = Math.min(frame, currentAnimation.frames.length - 1);
@@ -577,6 +655,13 @@ export function PetApp() {
   });
   const resizeAnchor = getResizeAnchor(menuPlacement);
   const visualBehaviorMode = menuOpen || menuOpening ? "idle" : behavior.mode;
+  const vitalsTone = !vitals
+    ? undefined
+    : vitals.warnings.length > 0 || vitals.moodKey === "low"
+      ? "needs-care"
+      : vitals.moodKey === "delighted"
+        ? "delighted"
+        : undefined;
   const rootStyle = {
     opacity: config.pet.opacity,
     width: contentPetWidth,
@@ -611,6 +696,7 @@ export function PetApp() {
       data-pet-mode={behavior.mode}
       data-menu-open={menuOpen ? "true" : undefined}
       data-menu-placement={menuOpen ? menuPlacement : undefined}
+      data-vitals-tone={vitalsTone}
       style={rootStyle}
       onPointerDown={startDrag}
       onPointerMove={moveDrag}

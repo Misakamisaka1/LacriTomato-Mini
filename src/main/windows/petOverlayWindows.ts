@@ -1,6 +1,8 @@
 import type { BrowserWindow, BrowserWindowConstructorOptions, Rectangle } from "electron";
+import { petVitalsPanelSizes } from "../../shared/petVitals.js";
 
 export type PetMenuPlacement = "top" | "left" | "right";
+export type PetStatusPlacement = "left" | "right";
 
 type BrowserWindowConstructor = new (options: BrowserWindowConstructorOptions) => BrowserWindow;
 
@@ -13,6 +15,9 @@ const petOverlayEdgeMargin = 24;
 const petBubbleWidth = 320;
 const petBubbleMinHeight = 72;
 const petBubbleMaxHeight = 180;
+const petStatusGap = 8;
+/** Where the card's centre sits inside the pet sprite: roughly the head. */
+const petStatusHeadRatio = 0.28;
 
 function clamp(value: number, min: number, max: number) {
   if (max < min) {
@@ -103,6 +108,67 @@ export function getPetBubbleOverlayBounds(petBounds: Rectangle, workArea: Rectan
   };
 }
 
+/**
+ * The pet sprite is bottom-centred inside its transparent window, so overlay
+ * placement has to use the sprite rather than the whole window rectangle.
+ */
+export function getPetSpriteBounds(
+  petBounds: Rectangle,
+  bodySize?: { width: number; height: number },
+): Rectangle {
+  if (!bodySize || bodySize.height <= 0 || bodySize.height > petBounds.height) {
+    return petBounds;
+  }
+
+  const width = bodySize.width > 0 && bodySize.width <= petBounds.width ? bodySize.width : petBounds.width;
+
+  return {
+    x: petBounds.x + Math.round((petBounds.width - width) / 2),
+    y: petBounds.y + petBounds.height - bodySize.height,
+    width,
+    height: bodySize.height,
+  };
+}
+
+/**
+ * The vitals card hangs next to the pet's head, preferring its right side and
+ * flipping to the left when the pet stands close to the right screen edge.
+ */
+export function getPetStatusOverlayLayout(
+  petBounds: Rectangle,
+  workArea: Rectangle,
+  size: { width: number; height: number } = petVitalsPanelSizes.compact,
+): { placement: PetStatusPlacement; bounds: Rectangle } {
+  const safeLeft = workArea.x + petOverlayEdgeMargin;
+  const safeRight = workArea.x + workArea.width - petOverlayEdgeMargin - size.width;
+  const rightX = Math.round(petBounds.x + petBounds.width + petStatusGap);
+  const leftX = Math.round(petBounds.x - petStatusGap - size.width);
+  const petCenter = petBounds.x + petBounds.width / 2;
+  const displayCenter = workArea.x + workArea.width / 2;
+  const placement: PetStatusPlacement = rightX <= safeRight
+    ? "right"
+    : leftX >= safeLeft
+      ? "left"
+      : petCenter <= displayCenter ? "right" : "left";
+  const preferredX = placement === "right" ? rightX : leftX;
+  // Centre the card on the pet's head so it reads as attached to the sprite.
+  const headY = Math.round(petBounds.y + petBounds.height * petStatusHeadRatio - size.height / 2);
+
+  return {
+    placement,
+    bounds: {
+      x: clamp(preferredX, safeLeft, safeRight),
+      y: clamp(
+        headY,
+        workArea.y + petOverlayEdgeMargin,
+        workArea.y + workArea.height - petOverlayEdgeMargin - size.height,
+      ),
+      width: size.width,
+      height: size.height,
+    },
+  };
+}
+
 export function createPetBubbleWindow(
   BrowserWindowClass: BrowserWindowConstructor,
   preloadPath: string,
@@ -140,6 +206,36 @@ export function createPetMenuWindow(
   const window = new BrowserWindowClass({
     width: petMenuKeyWidth,
     height: petMenuKeyHeight,
+    show: false,
+    frame: false,
+    transparent: true,
+    resizable: false,
+    skipTaskbar: true,
+    alwaysOnTop,
+    hasShadow: false,
+    webPreferences: {
+      preload: preloadPath,
+      contextIsolation: true,
+      nodeIntegration: false,
+    },
+  });
+
+  if (alwaysOnTop) {
+    window.setAlwaysOnTop(true, "screen-saver");
+  }
+
+  return window;
+}
+
+export function createPetStatusWindow(
+  BrowserWindowClass: BrowserWindowConstructor,
+  preloadPath: string,
+  alwaysOnTop: boolean,
+  size: { width: number; height: number } = petVitalsPanelSizes.compact,
+): BrowserWindow {
+  const window = new BrowserWindowClass({
+    width: size.width,
+    height: size.height,
     show: false,
     frame: false,
     transparent: true,

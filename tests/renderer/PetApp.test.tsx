@@ -235,7 +235,7 @@ describe("PetApp", () => {
       await openPetMenuFromMain();
 
       expect(await screen.findByRole("button", { name: "翻译" })).toBeTruthy();
-      await waitFor(() => expect(api.pet.chooseMenuPlacement).toHaveBeenCalledWith(204));
+      await waitFor(() => expect(api.pet.chooseMenuPlacement).toHaveBeenCalledWith(274));
       expect(container.querySelector<HTMLElement>(".pet-head-menu")?.dataset.placement).toBe("top");
     } finally {
       if (originalScreenX) {
@@ -381,7 +381,7 @@ describe("PetApp", () => {
     expect(sprite()?.getAttribute("data-animation")).toBe("runLeft");
   });
 
-  it("switches to jumping animation while the pointer is hovering over the pet", async () => {
+  it("switches to waving animation while the pointer is hovering over the pet", async () => {
     const { container } = await renderPetApp();
     const root = container.querySelector(".pet-root");
     const body = () => container.querySelector(".pet-body");
@@ -394,14 +394,14 @@ describe("PetApp", () => {
     fireEvent.pointerEnter(root);
 
     expect(body()?.getAttribute("data-hovering")).toBe("true");
-    expect(sprite()?.getAttribute("data-animation")).toBe("jumping");
+    expect(sprite()?.getAttribute("data-animation")).toBe("waving");
 
     fireEvent.pointerLeave(root);
 
     expect(body()?.getAttribute("data-hovering")).toBeNull();
   });
 
-  it("pauses hover jumping while opening and closing the head menu", async () => {
+  it("pauses hover waving while opening and closing the head menu", async () => {
     const { container } = await renderPetApp();
     const root = container.querySelector(".pet-root");
     const body = () => container.querySelector(".pet-body");
@@ -631,5 +631,91 @@ describe("PetApp", () => {
     expect(root.getAttribute("data-menu-open")).toBe("true");
     expect(body()?.getAttribute("data-behavior-mode")).toBe("idle");
     expect(sprite()?.getAttribute("data-animation")).toBe("idle");
+  });
+
+  describe("vitals click mode", () => {
+    /** The status card listens for pet clicks, so install the bridge on demand. */
+    function installVitalsBridge() {
+      const notifyPetClick = vi.fn(async () => undefined);
+      window.petdex = {
+        ...api,
+        pet: { ...api.pet, vitals: { notifyPetClick } },
+      } as unknown as typeof window.petdex;
+
+      return notifyPetClick;
+    }
+
+    it("reports a left click on the pet body", async () => {
+      const { container } = await renderPetApp();
+      const notifyPetClick = installVitalsBridge();
+      const body = container.querySelector(".pet-body");
+
+      if (!body) {
+        throw new Error("Pet body was not rendered");
+      }
+
+      dispatchPointerLikeEvent(body, "pointerdown", { button: 0, screenX: 100, screenY: 100 });
+      dispatchPointerLikeEvent(body, "pointerup", { button: 0, screenX: 100, screenY: 100 });
+
+      expect(notifyPetClick).toHaveBeenCalledWith(true);
+    });
+
+    it("hit-tests the pet body because the sprite ignores pointer events", async () => {
+      const { container } = await renderPetApp();
+      const notifyPetClick = installVitalsBridge();
+      const root = container.querySelector(".pet-root");
+      const body = container.querySelector(".pet-body");
+
+      if (!root || !body) {
+        throw new Error("Pet root was not rendered");
+      }
+
+      // The window is taller than the pet, so only the sprite rectangle counts.
+      body.getBoundingClientRect = () => ({
+        bottom: 400, height: 300, left: 0, right: 200, top: 100, width: 200, x: 0, y: 100,
+      }) as DOMRect;
+
+      // A click on the root inside the pet rectangle is a click on the pet.
+      dispatchPointerLikeEvent(root, "pointerdown", { button: 0, clientX: 100, clientY: 250, screenX: 900, screenY: 950 });
+      dispatchPointerLikeEvent(root, "pointerup", { button: 0, clientX: 100, clientY: 250, screenX: 900, screenY: 950 });
+      expect(notifyPetClick).toHaveBeenLastCalledWith(true);
+
+      // A click above the pet is a click outside it.
+      dispatchPointerLikeEvent(root, "pointerdown", { button: 0, clientX: 100, clientY: 40, screenX: 900, screenY: 740 });
+      dispatchPointerLikeEvent(root, "pointerup", { button: 0, clientX: 100, clientY: 40, screenX: 900, screenY: 740 });
+      expect(notifyPetClick).toHaveBeenLastCalledWith(false);
+    });
+
+    it("reports a left click on the empty space around the pet", async () => {
+      const { container } = await renderPetApp();
+      const notifyPetClick = installVitalsBridge();
+      const root = container.querySelector(".pet-root");
+
+      if (!root) {
+        throw new Error("Pet root was not rendered");
+      }
+
+      dispatchPointerLikeEvent(root, "pointerdown", { button: 0, screenX: 400, screenY: 90 });
+      dispatchPointerLikeEvent(root, "pointerup", { button: 0, screenX: 400, screenY: 90 });
+
+      expect(notifyPetClick).toHaveBeenCalledWith(false);
+    });
+
+    it("does not treat a drag as a click", async () => {
+      const { container } = await renderPetApp();
+      const notifyPetClick = installVitalsBridge();
+      const body = container.querySelector(".pet-body");
+
+      if (!body) {
+        throw new Error("Pet body was not rendered");
+      }
+
+      dispatchPointerLikeEvent(body, "pointerdown", { button: 0, screenX: 100, screenY: 100 });
+      dispatchPointerLikeEvent(body, "pointermove", { screenX: 160, screenY: 140 });
+      dispatchPointerLikeEvent(body, "pointerup", { button: 0, screenX: 160, screenY: 140 });
+
+      expect(api.pet.moveBy).toHaveBeenCalledWith(60, 40);
+      expect(notifyPetClick).not.toHaveBeenCalled();
+    });
   });
 });

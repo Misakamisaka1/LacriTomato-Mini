@@ -50,6 +50,17 @@ export const appConfigSchema = z.object({
     enableScrollingCaptureExperiment: z.boolean(),
   }),
   recording: recordingConfigSchema,
+  vitals: z.object({
+    enabled: z.boolean().default(true),
+    /** `always` pins the card on screen, `click` shows it on demand, `hidden` keeps it off. */
+    hudMode: z.enum(["always", "click", "hidden"]).default("click"),
+    notifications: z.boolean().default(true),
+    satietyDecayPerHour: z.number().min(0).max(40).default(4.2),
+    moodDecayPerHour: z.number().min(0).max(40).default(3),
+    affinityDecayPerHour: z.number().min(0).max(40).default(0.6),
+    /** Drag-and-drop position of the floating card; null means "follow the pet". */
+    hudPosition: z.object({ x: z.number(), y: z.number() }).nullable().default(null),
+  }),
   ocr: z.object({
     mode: z.enum(["local", "model"]),
     languages: z.array(z.string()),
@@ -128,6 +139,15 @@ export const defaultAppConfig: AppConfig = {
     mode: "local",
     languages: ["chi_sim", "eng"],
     sendToTranslatorAfterRecognize: false,
+  },
+  vitals: {
+    enabled: true,
+    hudMode: "click",
+    notifications: true,
+    satietyDecayPerHour: 4.2,
+    moodDecayPerHour: 3,
+    affinityDecayPerHour: 0.6,
+    hudPosition: null,
   },
   pet: {
     defaultHeight: 224,

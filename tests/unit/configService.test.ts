@@ -66,4 +66,30 @@ describe("config service", () => {
 
     expect(service.getConfig().model.model).toBe("deepseek-v4-flash");
   });
+
+  it("drops a pre-click-mode pinned card position in favour of the on-demand default", () => {
+    dir = mkdtempSync(join(tmpdir(), "petdex-config-"));
+    writeFileSync(join(dir, "config.json"), JSON.stringify({
+      vitals: { showHud: true, hudPosition: { x: 1800, y: 424 } },
+    }), "utf8");
+
+    const service = createConfigService({ userDataPath: dir });
+
+    expect(service.getConfig().vitals.hudMode).toBe("click");
+    expect(service.getConfig().vitals.hudPosition).toBeNull();
+    // The stale pre-mode flag is gone from the rewritten file too.
+    expect(readFileSync(join(dir, "config.json"), "utf8")).not.toContain("showHud");
+  });
+
+  it("keeps a pinned card position once a mode is stored", () => {
+    dir = mkdtempSync(join(tmpdir(), "petdex-config-"));
+    writeFileSync(join(dir, "config.json"), JSON.stringify({
+      vitals: { hudMode: "always", hudPosition: { x: 1800, y: 424 } },
+    }), "utf8");
+
+    const service = createConfigService({ userDataPath: dir });
+
+    expect(service.getConfig().vitals.hudMode).toBe("always");
+    expect(service.getConfig().vitals.hudPosition).toEqual({ x: 1800, y: 424 });
+  });
 });
