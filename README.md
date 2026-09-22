@@ -1,5 +1,7 @@
 # LacriTomato Mini Petdex
 
+[English README](README.en.md)
+
 Windows 优先的 Electron 桌面宠物平台。项目把 LacriTomato Mini 桌面宠物、翻译、截图/OCR、录屏和宠物聊天放在一个轻量插件壳里，适合个人桌面效率和陪伴场景。
 
 ## 功能概览
